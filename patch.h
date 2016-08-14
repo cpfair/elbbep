@@ -1,0 +1,2 @@
+#define REGISTER_MATCH(reg)
+#define GLOBAL_REGISTER_MATCH(reg)
