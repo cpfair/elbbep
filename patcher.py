@@ -9,9 +9,9 @@ PatchOverwrite = namedtuple("PatchOverwrite", "address content")
 PatchRelocation = namedtuple("PatchRelocation", "address symbol offset")
 PatchAppendAsm = namedtuple("PatchAppendAsm", "symbol content")
 
-def match_deasm(target_deasm, pattern_lines, global_matches):
-    pattern_composed = "\n".join((r"^\s*(?P<addr_%d>[a-f0-9]+):\s*[a-f0-9]+%s\s*%s$" % (idx, r" [a-f0-9]+" if pattern.split(" ")[0].endswith(".w") else "", pattern) for idx, pattern in enumerate(pattern_lines)))
-    # print(pattern_composed)
+def match_deasm(target_deasm, pattern_lines):
+    pattern_composed = "\n".join((r"^\s*(?P<addr_%d>[a-f0-9]+):\s*[a-f0-9]+(?: [a-f0-9]+)?\s*%s$" % (idx, pattern) for idx, pattern in enumerate(pattern_lines)))
+    print(pattern_composed)
     # Find it in the deasm
     match_exp = re.compile(pattern_composed, re.MULTILINE)
     matches = match_exp.finditer(target_deasm)
@@ -20,7 +20,6 @@ def match_deasm(target_deasm, pattern_lines, global_matches):
         match = next(matches)
     except StopIteration:
         assert False, "Pattern %s not found in target" % pattern_lines
-    global_matches.update(match.groupdict())
     try:
         next(matches)
         assert False, "Pattern %s is ambiguous" % pattern_lines
@@ -29,7 +28,7 @@ def match_deasm(target_deasm, pattern_lines, global_matches):
 
     return match
 
-def patch_inject(block_txt, target_deasm, target_bin, global_matches={}):
+def patch_inject(block_txt, target_deasm, target_bin):
     # Patch insertion points must
     # - not have any instruction in the next 5 half-words that is PC-relative
     #   (as these are copied into the proxy stub)
@@ -43,7 +42,7 @@ def patch_inject(block_txt, target_deasm, target_bin, global_matches={}):
     pattern_lines = [x.strip("/ ") for x in block_txt.split("\n") if x.strip("/ ").split(" ")[0] not in ("PATCH") and x.startswith("/")]
     jump_insert_instr_idx = pattern_lines.index("JUMP")
     pattern_lines.remove("JUMP")
-    match = match_deasm(target_deasm, pattern_lines, global_matches)
+    match = match_deasm(target_deasm, pattern_lines)
 
     # The jump point that gets pasted into the located signature
     jmp_mcode = [
@@ -74,7 +73,7 @@ def patch_inject(block_txt, target_deasm, target_bin, global_matches={}):
     for arg_reg_no, requested_match in enumerate(requested_register_matches):
         # We use global_matches here since our matches are guaranteed to have overwritten any older ones.
         # So, no need to go looking both places.
-        reg_no = int(global_matches[requested_match].strip("r"))
+        reg_no = int(match.group(requested_match).strip("r"))
         if reg_no == 0:
             stack_off = 13 * 4
         else:
@@ -95,7 +94,64 @@ def patch_inject(block_txt, target_deasm, target_bin, global_matches={}):
 
     yield PatchAppendAsm("%s__proxy" % dest_symbol, proxy_asm)
 
-def patch(target_bin_path, patch_c_path):
+def patch_wrap(block_txt, target_deasm, target_bin):
+    # Patch insertion points must
+    # - occur at the beginning of a procedure, before the stack has been modified.
+    #   (though maybe not if one doesn't need args from the stack, i.e. r0-r3 are fine).
+    # - not have any instruction in the next 5 half-words that is PC-relative
+    #   (as these are copied into the proxy stub)
+    # - must not have a 32-bit instruction spanning the +5 half-word offset
+    #   (as it'll be broken by the copy)
+
+    dest_symbol = re.match(r"(?:\w+\s)+(\w+)\(", block_txt.split("\n")[-1]).group(1)
+
+    # Pull pattern
+    pattern_lines = [x.strip("/ ") for x in block_txt.split("\n") if x.strip("/ ").split(" ")[0] not in ("PATCH") and x.startswith("/")]
+    jump_insert_instr_idx = pattern_lines.index("JUMP")
+    pattern_lines.remove("JUMP")
+    match = match_deasm(target_deasm, pattern_lines)
+
+    # The jump point that gets pasted into the located signature
+    jmp_mcode = [
+        0x01, 0xb4, # PUSH {r0} - as we're about to overwrite both.
+        0x00, 0x48, # LDR r0, [pc, #0] - r0, as we can't use LR due to instr encoding.
+        0x00, 0x47, # BX r0 - we jump to an absolute offset after this patch to resume.
+        0xDE, 0xAD, 0xCA, 0xFE # Will be rewritten by the relocator
+    ]
+    jmp_insert_addr = int(match.group("addr_%d" % jump_insert_instr_idx), 16)
+    # The LDR must be aligned.
+    if jmp_insert_addr % 4 == 0:
+        jmp_mcode[2] = 1 # Make LDR ...#4
+        jmp_mcode = jmp_mcode[:6] + [0, 0] + jmp_mcode[6:]
+    print(jmp_insert_addr)
+    yield PatchOverwrite(jmp_insert_addr, jmp_mcode)
+    yield PatchRelocation(jmp_insert_addr + len(jmp_mcode) - 4, "%s__proxy" % dest_symbol, 1)
+
+    # Grab the stuff we're going to overwrite
+    overwrote_mcode = target_bin[jmp_insert_addr:jmp_insert_addr + len(jmp_mcode)]
+
+    # Assemble the proxy function that will hand off to the wrapper.
+    proxy_asm = ".syntax unified\n"
+    # Restore r0 we stashed on the stack
+    proxy_asm += "POP {r0}\n"
+    # Jump to injected function.
+    # when it returns, it will return to the /caller/ of the wrapped fcn!
+    proxy_asm += "B %s\n" % dest_symbol
+    yield PatchAppendAsm("%s__proxy" % dest_symbol, proxy_asm)
+
+    # Make the pass-through function for the wrapper to call, should it elect to do so.
+    passthru_asm = ".syntax unified\n"
+    # Prep to return to the original function
+    passthru_asm += "LDR ip, =0x%x\n" % (MICROCODE_OFFSET + jmp_insert_addr + len(jmp_mcode) + 1)
+    # Perform whatever actions we overwrote.
+    for byte in overwrote_mcode:
+        passthru_asm += ".byte 0x%x\n" % ord(byte)
+
+    # Return to original site
+    passthru_asm += "BX ip\n"
+    yield PatchAppendAsm("%s__passthru" % dest_symbol, passthru_asm)
+
+def patch(target_bin_path, patch_c_path, other_c_paths):
     target_bin = open(target_bin_path, "rb").read()
     target_deasm = subprocess.check_output(["arm-none-eabi-objdump", "-b", "binary", "-marm", "-Mforce-thumb", "-D", target_bin_path]).replace("\t", " ")
 
@@ -104,6 +160,8 @@ def patch(target_bin_path, patch_c_path):
     for patch_block in re.finditer(r"/// PATCH (?P<mode>\S+)(?:\s+(?P<param>\S+))?(\n/// .+)+(\n.+)", patch_c):
         if patch_block.group("mode") == "INJECT":
             pending_operations += list(patch_inject(patch_block.group(0), target_deasm, target_bin))
+        if patch_block.group("mode") == "WRAP":
+            pending_operations += list(patch_wrap(patch_block.group(0), target_deasm, target_bin))
         else:
             raise RuntimeError("Unknown patch mode %s" % patch_block.group("mode"))
 
@@ -111,7 +169,8 @@ def patch(target_bin_path, patch_c_path):
     patch_c_composed = patch_c
     for op in pending_operations:
         if type(op) is PatchAppendAsm:
-            patch_c_composed += "__attribute__((naked)) void %s (void) {\n" % op.symbol
+            patch_c_composed = ("void %s ();\n" % op.symbol) + patch_c_composed
+            patch_c_composed += "__attribute__((naked)) void %s () {\n" % op.symbol
             patch_c_composed += "  __asm__(\"%s\");\n" % op.content.replace("\n", "\\n")
             patch_c_composed += "}\n"
 
@@ -121,7 +180,7 @@ def patch(target_bin_path, patch_c_path):
     ldscript = open("patch.ld", "r").read()
     ldscript = ldscript.replace("@TARGET_END@", "0x%x" % (len(target_bin) + MICROCODE_OFFSET))
     open("patch.comp.ld", "w").write(ldscript)
-    subprocess.check_call(["arm-none-eabi-gcc", "-mcpu=cortex-m3", "-mthumb", "-fPIC", "-fPIE", "-nostdlib", "-Wl,-Tpatch.comp.ld", "-Wl,-Map,patch.comp.map,--emit-relocs", "-Os", "-o", "patch.comp.o", "patch.comp.c"])
+    subprocess.check_call(["arm-none-eabi-gcc", "-std=c99", "-mcpu=cortex-m3", "-mthumb", "-fPIC", "-fPIE", "-nostdlib", "-Wl,-Tpatch.comp.ld", "-Wl,-Map,patch.comp.map,--emit-relocs", "-D_TIME_H_", "-Iruntime", "-Os", "-o", "patch.comp.o", "patch.comp.c"] + other_c_paths)
 
     # Perform requested overwrites on input binary.
     for op in pending_operations:
@@ -146,4 +205,4 @@ def patch(target_bin_path, patch_c_path):
     # open("final.bin", "wb").write(target_bin)
 
 
-patch("/Volumes/MacintoshHD/Users/collinfair/Library/Application Support/Pebble SDK/SDKs/3.14/sdk-core/pebble/aplite/qemu/qemu_micro_flash.orig.bin", "patch.c")
+patch("/Volumes/MacintoshHD/Users/collinfair/Library/Application Support/Pebble SDK/SDKs/3.14/sdk-core/pebble/aplite/qemu/qemu_micro_flash.orig.bin", "runtime/patch.c", ["runtime/text_shaper.c", "runtime/text_shaper_lut.c", "runtime/utf8.c"])
