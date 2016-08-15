@@ -2,9 +2,7 @@
 
 uint16_t read_utf8(char** ptr) {
     uint16_t codept = **ptr;
-    if (!(codept & 0b10000000)) {
-        // Good to go.
-    } else if ((codept & 0b11000000) == 0b11000000) {
+    if ((codept & 0b11000000) == 0b11000000) {
         codept = ((codept & ~0b11000000) << 6) | (*(++(*ptr)) & ~0b10000000);
     } else if ((codept & 0b11100000) == 0b11100000) {
         codept = ((codept & ~0b11100000) << 6) | (*(++(*ptr)) & ~0b10000000);
