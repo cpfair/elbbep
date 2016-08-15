@@ -8,6 +8,7 @@ MICROCODE_OFFSET = 0x8000000
 PatchOverwrite = namedtuple("PatchOverwrite", "address content")
 PatchRelocation = namedtuple("PatchRelocation", "address symbol offset")
 PatchAppendAsm = namedtuple("PatchAppendAsm", "symbol content")
+PatchDefineSymbol = namedtuple("PatchDefineSymbol", "name address")
 
 def match_deasm(target_deasm, pattern_lines):
     pattern_composed = "\n".join((r"^\s*(?P<addr_%d>[a-f0-9]+):\s*[a-f0-9]+(?: [a-f0-9]+)?\s*%s$" % (idx, pattern) for idx, pattern in enumerate(pattern_lines)))
@@ -52,6 +53,7 @@ def patch_inject(block_txt, target_deasm, target_bin):
         0xDE, 0xAD, 0xCA, 0xFE # Will be rewritten by the relocator
     ]
     jmp_insert_addr = int(match.group("addr_%d" % jump_insert_instr_idx), 16)
+    print("0x%x" % (jmp_insert_addr + MICROCODE_OFFSET))
     yield PatchOverwrite(jmp_insert_addr, jmp_mcode)
     yield PatchRelocation(jmp_insert_addr + 6, "%s__proxy" % dest_symbol, 1)
 
@@ -68,12 +70,15 @@ def patch_inject(block_txt, target_deasm, target_bin):
     proxy_asm += "PUSH.W {r1-r12, lr}\n"
     # Fish any register parameters they requested out of the stack.
     # We assume the function doesn't have any other parameters...
-    requested_register_matches = re.findall(r"(?:GLOBAL_)?REGISTER_MATCH\(([^)]+)\)", block_txt.split("\n")[-1])
+    requested_register_matches = re.findall(r"REGISTER_MATCH\(([^)]+)\)", block_txt.split("\n")[-1])
     assert len(requested_register_matches) <= 4, "Maximum 4 register-matched parameters"
     for arg_reg_no, requested_match in enumerate(requested_register_matches):
         # We use global_matches here since our matches are guaranteed to have overwritten any older ones.
         # So, no need to go looking both places.
-        reg_no = int(match.group(requested_match).strip("r"))
+        if requested_match.startswith("r"):
+            reg_no = int(requested_match.strip("r"))
+        else:
+            reg_no = int(match.group(requested_match).strip("r"))
         if reg_no == 0:
             stack_off = 13 * 4
         else:
@@ -151,6 +156,30 @@ def patch_wrap(block_txt, target_deasm, target_bin):
     passthru_asm += "BX ip\n"
     yield PatchAppendAsm("%s__passthru" % dest_symbol, passthru_asm)
 
+def patch_locate(block_txt, target_deasm):
+    dest_symbol = re.match(r"(?:(?:\w|\*)+\s)+(\w+)\(", block_txt.split("\n")[-1]).group(1)
+
+    # Pull pattern
+    pattern_lines = [x.strip("/ ") for x in block_txt.split("\n") if x.strip("/ ").split(" ")[0] not in ("PATCH") and x.startswith("/")]
+    jump_insert_instr_idx = pattern_lines.index("TARGET")
+    pattern_lines.remove("TARGET")
+    match = match_deasm(target_deasm, pattern_lines)
+
+    target_addr = int(match.group("addr_%d" % jump_insert_instr_idx), 16)
+    print("0x%x" % target_addr)
+
+    # I'm not convinced this is actually required - but my attempt at just defining the symbol didn't work.
+    proxy_asm = ".syntax unified\n"
+    proxy_asm += "MOV ip, r4\n"
+    proxy_asm += "LDR r4, =0x%x\n" % (target_addr + MICROCODE_OFFSET + 1)
+    # xor swap
+    proxy_asm += "EOR r4, ip\n"
+    proxy_asm += "EOR ip, r4\n"
+    proxy_asm += "EOR r4, ip\n"
+    proxy_asm += "BX ip\n"
+    yield PatchAppendAsm(dest_symbol, proxy_asm)
+
+
 def patch(target_bin_path, patch_c_path, other_c_paths):
     target_bin = open(target_bin_path, "rb").read()
     target_deasm = subprocess.check_output(["arm-none-eabi-objdump", "-b", "binary", "-marm", "-Mforce-thumb", "-D", target_bin_path]).replace("\t", " ")
@@ -160,27 +189,35 @@ def patch(target_bin_path, patch_c_path, other_c_paths):
     for patch_block in re.finditer(r"/// PATCH (?P<mode>\S+)(?:\s+(?P<param>\S+))?(\n/// .+)+(\n.+)", patch_c):
         if patch_block.group("mode") == "INJECT":
             pending_operations += list(patch_inject(patch_block.group(0), target_deasm, target_bin))
-        if patch_block.group("mode") == "WRAP":
+        elif patch_block.group("mode") == "WRAP":
             pending_operations += list(patch_wrap(patch_block.group(0), target_deasm, target_bin))
+        elif patch_block.group("mode") == "LOCATE":
+            pending_operations += list(patch_locate(patch_block.group(0), target_deasm))
         else:
-            raise RuntimeError("Unknown patch mode %s" % patch_block.group("mode"))
+            raise RuntimeError("Unknown patch mode %s at %s" % (patch_block.group("mode"), patch_block.start()))
 
     # Produce the final C file to compile.
     patch_c_composed = patch_c
     for op in pending_operations:
         if type(op) is PatchAppendAsm:
-            patch_c_composed = ("void %s ();\n" % op.symbol) + patch_c_composed
-            patch_c_composed += "__attribute__((naked)) void %s () {\n" % op.symbol
+            patch_c_composed = ("void* %s ();\n" % op.symbol) + patch_c_composed
+            patch_c_composed += "__attribute__((naked)) void* %s () {\n" % op.symbol
             patch_c_composed += "  __asm__(\"%s\");\n" % op.content.replace("\n", "\\n")
             patch_c_composed += "}\n"
+    
+    cflags = ["-std=c99", "-mcpu=cortex-m3", "-mthumb", "-g", "-fPIC", "-fPIE", "-nostdlib", "-Wl,-Tpatch.comp.ld", "-Wl,-Map,patch.comp.map,--emit-relocs", "-D_TIME_H_", "-Iruntime", "-Os"]
 
+    # Define new symbols via the linker.
+    for op in pending_operations:
+        if type(op) is PatchDefineSymbol:
+            cflags += ["-Wl,--defsym=%s=0x%x" % (op.name, op.address)]
 
     # Compile this C to an object file.
     open("patch.comp.c", "w").write(patch_c_composed)
     ldscript = open("patch.ld", "r").read()
     ldscript = ldscript.replace("@TARGET_END@", "0x%x" % (len(target_bin) + MICROCODE_OFFSET))
     open("patch.comp.ld", "w").write(ldscript)
-    subprocess.check_call(["arm-none-eabi-gcc", "-std=c99", "-mcpu=cortex-m3", "-mthumb", "-fPIC", "-fPIE", "-nostdlib", "-Wl,-Tpatch.comp.ld", "-Wl,-Map,patch.comp.map,--emit-relocs", "-D_TIME_H_", "-Iruntime", "-Os", "-o", "patch.comp.o", "patch.comp.c"] + other_c_paths)
+    subprocess.check_call(["arm-none-eabi-gcc"] + cflags + ["-o", "patch.comp.o", "patch.comp.c"] + other_c_paths)
 
     # Perform requested overwrites on input binary.
     for op in pending_operations:
@@ -205,4 +242,4 @@ def patch(target_bin_path, patch_c_path, other_c_paths):
     # open("final.bin", "wb").write(target_bin)
 
 
-patch("/Volumes/MacintoshHD/Users/collinfair/Library/Application Support/Pebble SDK/SDKs/3.14/sdk-core/pebble/aplite/qemu/qemu_micro_flash.orig.bin", "runtime/patch.c", ["runtime/text_shaper.c", "runtime/text_shaper_lut.c", "runtime/utf8.c"])
+patch("/Volumes/MacintoshHD/Users/collinfair/Library/Application Support/Pebble SDK/SDKs/3.14/sdk-core/pebble/aplite/qemu/qemu_micro_flash.orig.bin", "runtime/patch.c", ["runtime/text_shaper.c", "runtime/text_shaper_lut.c", "runtime/utf8.c", "runtime/rtl.c"])
