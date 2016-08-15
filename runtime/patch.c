@@ -25,8 +25,7 @@ void *memset(void* dest, int val, size_t size) {
 /// ldr.+
 /// str .+
 /// ldr .+
-void* graphics_text_layout_get_content_size_with_attributes_loc();
-// GSize graphics_text_layout_get_content_size_with_attributes(const char * text, GFont const font, const GRect box, const GTextOverflowMode overflow_mode, const GTextAlignment alignment, GTextAttributes * text_attributes);
+void* graphics_text_layout_get_content_size_with_attributes_();
 
 /// PATCH WRAP
 /// JUMP
@@ -54,8 +53,8 @@ void graphics_draw_text_patch(GContext* ctx, char* text, GFont const font, const
         shaped_text = shape_text(text);
     }
     alignment = 13;
-    graphics_text_layout_get_content_size_with_attributes_loc(text, font, box, overflow_mode, alignment, text_attributes);
-    graphics_draw_text_patch__passthru(ctx, text, font, box, overflow_mode, alignment, text_attributes);
+    graphics_text_layout_get_content_size_with_attributes_(text, font, box, overflow_mode, alignment, text_attributes);
+    PASSTHRU(graphics_draw_text_patch, ctx, text, font, box, overflow_mode, alignment, text_attributes);
     if (shaped_text) {
         unshape_text(text);
     }
