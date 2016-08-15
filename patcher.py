@@ -9,6 +9,7 @@ PatchOverwrite = namedtuple("PatchOverwrite", "address content")
 PatchBranchOffset = namedtuple("PatchBranchOffset", "address symbol link")
 PatchAppendAsm = namedtuple("PatchAppendAsm", "symbol content")
 PatchDefineSymbol = namedtuple("PatchDefineSymbol", "name address")
+PatchDefineMacro = namedtuple("PatchDefineMacro", "name value")
 
 def match_deasm(target_deasm, pattern_lines):
     pattern_composed = "\n".join((r"^\s*(?P<addr_%d>[a-f0-9]+):\s*[a-f0-9]+(?: [a-f0-9]+)?\s*%s$" % (idx, pattern) for idx, pattern in enumerate(pattern_lines)))
@@ -30,25 +31,47 @@ def match_deasm(target_deasm, pattern_lines):
     return match
 
 def regmatch_asm(block_txt):
+    dirtied_registers = set()
     # Fish any register parameters they requested out of the stack.
     # We assume the function doesn't have any other parameters...
-    requested_register_matches = re.findall(r"REGISTER_MATCH\(([^)]+)\)", block_txt.split("\n")[-1])
-    assert len(requested_register_matches) <= 4, "Maximum 4 register-matched parameters"
-    dirtied_registers = set()
+    requested_register_matches = list(re.finditer(r"(?P<type>REGISTER_MATCH|CALLSITE_SP)(?:\((?P<arg>[^)]+)\))?", block_txt.split("\n")[-1]))
     proxy_asm = ""
+    trailing_proxy_asm = ""
+    stacked_args = max(0, len(requested_register_matches) - 4)
+    stacked_args_offset = stacked_args * 4
     for arg_reg_no, requested_match in enumerate(requested_register_matches):
-        # We use global_matches here since our matches are guaranteed to have overwritten any older ones.
-        # So, no need to go looking both places.
-        if requested_match.startswith("r"):
-            reg_no = int(requested_match.strip("r"))
+        if requested_match.group("type") == "REGISTER_MATCH":
+            arg = requested_match.group("arg")
+            # We use global_matches here since our matches are guaranteed to have overwritten any older ones.
+            # So, no need to go looking both places.
+            if arg.startswith("r"):
+                reg_no = int(arg.strip("r"))
+            else:
+                reg_no = int(match.group(arg).strip("r"))
+            if arg_reg_no < 4 and arg_reg_no == reg_no and arg_reg_no not in dirtied_registers:
+                continue
+            dirtied_registers.add(arg_reg_no)
+            stack_off = reg_no * 4
+            if arg_reg_no < 4:
+                proxy_asm += "LDR r%d, [sp, #%d]\n" % (arg_reg_no, stack_off)
+            else:
+                stack_dest_off = -(arg_reg_no - 4) * 4 - stacked_args_offset
+                proxy_asm += "LDR ip, [sp, #%d]\n" % stack_off
+                proxy_asm += "STR ip, [sp, #%d]\n" % stack_dest_off
+
+        elif requested_match.group("type") == "CALLSITE_SP":
+            if arg_reg_no < 4:
+                proxy_asm += "ADD r%d, sp, #%d\n" % (arg_reg_no, 56)
+            else:
+                stack_dest_off = -(arg_reg_no - 4) * 4 - stacked_args_offset
+                proxy_asm += "ADD ip, sp, #%d\n" % 56
+                proxy_asm += "STR ip, [sp, #%d]\n" % stack_dest_off
         else:
-            reg_no = int(match.group(requested_match).strip("r"))
-        if arg_reg_no == reg_no and arg_reg_no not in dirtied_registers:
-            continue
-        dirtied_registers.add(arg_reg_no)
-        stack_off = reg_no * 4
-        proxy_asm += "LDR r%d, [sp, #%d]\n" % (arg_reg_no, stack_off)
-    return proxy_asm
+            raise RuntimeError("Unknown register parameter request type %s" % requested_match.group("type"))
+    if stacked_args:
+        proxy_asm += "SUB sp, #%d\n" % stacked_args_offset
+        trailing_proxy_asm += "ADD sp, #%d\n" % stacked_args_offset
+    return proxy_asm, trailing_proxy_asm
 
 def patch_inject(block_txt, target_deasm, target_bin):
     # Patch insertion points must
@@ -78,14 +101,17 @@ def patch_inject(block_txt, target_deasm, target_bin):
     # Assemble the proxy function to be assembled and linked
     # Preserve all registers of the caller
     proxy_asm = "PUSH.W {r0-r12, lr}\n"
-    proxy_asm += regmatch_asm(block_txt)
+    arg_setup, arg_teardown = regmatch_asm(block_txt)
+    proxy_asm += arg_setup
     # Jump to injected function
     proxy_asm += "BLX %s\n" % dest_symbol
+    proxy_asm += arg_teardown
     # Restore caller variables
     proxy_asm += "POP.W {r0-r12, lr}\n"
-    # Perform whatever actions we overwrote.
-    for byte in overwrote_mcode:
-        proxy_asm += ".byte 0x%x\n" % ord(byte)
+    if "SUPPLANT" not in block_txt:
+        # Perform whatever actions we overwrote.
+        for byte in overwrote_mcode:
+            proxy_asm += ".byte 0x%x\n" % ord(byte)
     # Return to original site
     proxy_asm += "B %s__return\n" % dest_symbol
 
@@ -137,7 +163,7 @@ def patch_wrap(block_txt, target_deasm, target_bin):
     yield PatchDefineSymbol("%s__return" % dest_symbol, MICROCODE_OFFSET + end_patch_addr)
     yield PatchAppendAsm("%s__passthru" % dest_symbol, passthru_asm)
 
-def patch_locate(block_txt, target_deasm):
+def patch_locate_function(block_txt, target_deasm):
     dest_symbol = re.match(r"(?:(?:\w|\*)+\s)+(\w+)\(", block_txt.split("\n")[-1]).group(1)
 
     # Pull pattern
@@ -151,6 +177,18 @@ def patch_locate(block_txt, target_deasm):
 
     yield PatchDefineSymbol(dest_symbol, target_addr + MICROCODE_OFFSET)
 
+def patch_locate_define(block_txt, target_deasm):
+    # Pull pattern
+    pattern_lines = [x.strip("/ ") for x in block_txt.split("\n") if x.strip("/ ").split(" ")[0] not in ("PATCH") and x.startswith("/")]
+    match = match_deasm(target_deasm, pattern_lines)
+
+    print("Matched on deasm line %d" % target_deasm[:match.start()].count("\n"))
+    print(match.group(0))
+    for k, v in match.groupdict().items():
+        if k.startswith("addr"):
+            continue
+        yield PatchDefineMacro(k.upper(), v)
+
 def patch(target_bin_path, patch_c_path, other_c_paths):
     target_bin = open(target_bin_path, "rb").read()
     target_deasm = subprocess.check_output(["arm-none-eabi-objdump", "-b", "binary", "-marm", "-Mforce-thumb", "-D", target_bin_path]).replace("\t", " ")
@@ -162,13 +200,16 @@ def patch(target_bin_path, patch_c_path, other_c_paths):
             pending_operations += list(patch_inject(patch_block.group(0), target_deasm, target_bin))
         elif patch_block.group("mode") == "WRAP":
             pending_operations += list(patch_wrap(patch_block.group(0), target_deasm, target_bin))
-        elif patch_block.group("mode") == "LOCATE":
-            pending_operations += list(patch_locate(patch_block.group(0), target_deasm))
+        elif patch_block.group("mode") == "LOCATE-FUNCTION":
+            pending_operations += list(patch_locate_function(patch_block.group(0), target_deasm))
+        elif patch_block.group("mode") == "LOCATE-DEFINE":
+            pending_operations += list(patch_locate_define(patch_block.group(0), target_deasm))
         else:
             raise RuntimeError("Unknown patch mode %s at %s" % (patch_block.group("mode"), patch_block.start()))
 
     # Produce the final files to compile.
     patch_h_composed = """// THIS FILE IS AUTOMATICALLY GENERATED
+#define CALLSITE_SP
 #define PASSTHRU(name, ...) name ## __passthru(__VA_ARGS__)
 #define REGISTER_MATCH(reg)\n"""
     patch_s_composed = ".syntax unified\n.thumb\n"
@@ -178,12 +219,17 @@ def patch(target_bin_path, patch_c_path, other_c_paths):
             patch_s_composed += ".thumb_func\n.global %s\n%s:\n\t" % (op.symbol, op.symbol)
             patch_s_composed += op.content.replace("\n", "\n\t") + "\n"
 
-    cflags = ["-std=c99", "-mcpu=cortex-m3", "-mthumb", "-g", "-fPIC", "-fPIE", "-nostdlib", "-Wl,-Tpatch.comp.ld", "-Wl,-Map,patch.comp.map,--emit-relocs", "-D_TIME_H_", "-I.", "-Iruntime", "-Os"]
+    cflags = ["-std=c99", "-mcpu=cortex-m3", "-mthumb", "-g", "-fPIC", "-fPIE", "-nostdlib", "-Wl,-Tpatch.comp.ld", "-Wl,-Map,patch.comp.map,--emit-relocs", "-D_TIME_H_", "-I.", "-Iruntime", "-O0"]
 
     # Define new symbols explicitly.
     for op in pending_operations:
         if type(op) is PatchDefineSymbol:
             patch_s_composed += ".global %s\n.thumb_set %s, 0x%x\n" % (op.name, op.name, op.address)
+
+    # Generate #defines
+    for op in pending_operations:
+        if type(op) is PatchDefineMacro:
+            patch_h_composed += "#define %s %s\n" % (op.name, op.value)
 
     # Compile this C and Assembly to an object file.
     open("patch.auto.h", "w").write(patch_h_composed)
