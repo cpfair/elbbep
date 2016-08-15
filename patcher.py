@@ -68,8 +68,9 @@ def patch_inject(block_txt, target_deasm, target_bin):
     # The jump point that gets pasted into the located signature
     jmp_mcode = [0, 0, 0, 0] # Filled in later by the relocator.
     jmp_insert_addr = int(match.group("addr_%d" % jump_insert_instr_idx), 16)
+    end_patch_addr = jmp_insert_addr + len(jmp_mcode)
     print("0x%x" % (jmp_insert_addr + MICROCODE_OFFSET))
-    yield PatchBranchOffset(jmp_insert_addr, "%s__proxy" % dest_symbol, True)
+    yield PatchBranchOffset(jmp_insert_addr, "%s__proxy" % dest_symbol, False)
 
     # Grab the stuff we're going to overwrite
     overwrote_mcode = target_bin[jmp_insert_addr:jmp_insert_addr + len(jmp_mcode)]
@@ -86,8 +87,9 @@ def patch_inject(block_txt, target_deasm, target_bin):
     for byte in overwrote_mcode:
         proxy_asm += ".byte 0x%x\n" % ord(byte)
     # Return to original site
-    proxy_asm += "BX lr\n"
+    proxy_asm += "B %s__return\n" % dest_symbol
 
+    yield PatchDefineSymbol("%s__return" % dest_symbol, MICROCODE_OFFSET + end_patch_addr)
     yield PatchAppendAsm("%s__proxy" % dest_symbol, proxy_asm)
 
 def patch_wrap(block_txt, target_deasm, target_bin):
