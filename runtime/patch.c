@@ -1,5 +1,5 @@
 #include "pebble.h"
-#include "patch.h"
+#include "patch.auto.h"
 #include "text_shaper.h"
 #include "rtl.h"
 #include "platform.h"
@@ -32,6 +32,7 @@ void* graphics_text_layout_get_content_size_with_attributes_loc();
 /// JUMP
 /// sub sp, #\d+
 /// stmdb .+
+/// END-PATCH
 /// sub sp, #\d+
 /// mov .+
 /// mov .+

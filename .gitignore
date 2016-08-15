@@ -7,3 +7,4 @@ glyphs-*.json
 *.pyc
 text_shaper_lut.*
 *.pfo
+*.auto.*
