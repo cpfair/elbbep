@@ -11,32 +11,6 @@ void *memset(void* dest, int val, size_t size) {
     return NULL; // Whatever.
 }
 
-// This pattern is really long because it's mostly identical to graphics_text_layout_get_content_size
-/// PATCH LOCATE-FUNCTION
-/// TARGET
-/// push .+
-/// sub sp, .+
-/// mov .+
-/// mov .+
-/// add .+
-/// stm.+
-/// ldr.+
-/// str .+
-/// ldr.+
-/// str .+
-/// ldr .+
-void* graphics_text_layout_get_content_size_with_attributes_();
-
-/// PATCH WRAP
-/// JUMP
-/// sub sp, #\d+
-/// stmdb .+
-/// END-PATCH
-/// sub sp, #\d+
-/// mov .+
-/// mov .+
-/// mov .+
-/// str .+
 void graphics_draw_text_patch(GContext* ctx, char* text, GFont const font, const GRect box, const GTextOverflowMode overflow_mode, GTextAlignment alignment, GTextAttributes* text_attributes) {
     bool shaped_text = false;
     if (text >= (char*)SRAM_BASE) {
@@ -48,37 +22,6 @@ void graphics_draw_text_patch(GContext* ctx, char* text, GFont const font, const
     }
 }
 
-/// PATCH LOCATE-DEFINE
-/// mov r0.+
-/// add r1, sp, #(?P<lineend_sp_off>\d+).*
-/// mov r2.+
-/// mov r3.+
-/// bl .+
-/// ldr .+
-/// str .+
-/// movs .+
-
-/// PATCH LOCATE-DEFINE
-/// ldr\..+
-/// ldr r\d, \[sp, #(?P<renderhdlr_sp_off>\d+)\].*
-/// ldr r\d, \[r\d, #4\]
-/// cbz .+
-
-// This is the same as the render inject signature.
-/// PATCH LOCATE-DEFINE
-/// mov r0, .+
-/// mov r1, .+
-/// ldr r2, \[sp, #(?P<renderhdlr_arg3_sp_off>\d+)\].*
-/// blx .+
-/// b.+
-
-/// PATCH INJECT SUPPLANT
-/// mov r0, .+
-/// mov r1, .+
-/// JUMP
-/// ldr r2, .+
-/// blx .+
-/// b.+
 void render_wrap(void* REGISTER_MATCH(r0) gcontext, char** REGISTER_MATCH(r1) layout, bool REGISTER_MATCH(r6) more_text, char* CALLSITE_SP callsite_sp) {
     // ^ I should probably do something about that r6
 
