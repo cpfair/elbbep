@@ -4,6 +4,7 @@ import subprocess
 from collections import namedtuple
 
 MICROCODE_OFFSET = 0x8000000
+EMU_MICROCODE_OFFSET = 0x8000000
 
 PatchOverwrite = namedtuple("PatchOverwrite", "address content")
 PatchBranchOffset = namedtuple("PatchBranchOffset", "address symbol link")
@@ -13,7 +14,7 @@ PatchDefineMacro = namedtuple("PatchDefineMacro", "name value")
 MatchResult = namedtuple("MatchResult", "start end markers groups")
 
 class Patcher:
-    def __init__(self, target_bin_path, patch_c_path, other_c_paths):
+    def __init__(self, target_bin_path, emu_elf_path, emu_bin_path, patch_c_path, other_c_paths):
         self.target_bin_path = target_bin_path
         self.patch_c_path = patch_c_path
         self.patch_c = open(patch_c_path, "r").read()
@@ -21,6 +22,12 @@ class Patcher:
 
         self.target_bin = open(target_bin_path, "rb").read()
         self.target_deasm = subprocess.check_output(["arm-none-eabi-objdump", "-b", "binary", "-marm", "-Mforce-thumb", "-D", target_bin_path]).replace("\t", " ")
+
+        symtab_txt = subprocess.check_output(["arm-none-eabi-nm", emu_elf_path])
+        self.emu_symtab = {
+            m.group("name"): int(m.group("addr"), 16) for m in re.finditer(r"(?P<addr>[a-f0-9]+)\s+\w+\s+(?P<name>\w+)$", symtab_txt, re.MULTILINE)
+        }
+        self.emu_bin = open(emu_bin_path, "rb").read()
 
         self.op_queue = []
 
@@ -59,6 +66,33 @@ class Patcher:
             end=int(match.group("addr_%d" % (len(filtered_pattern_lines)-1)), 16),
             markers={k: int(match.group("addr_%d" % v), 16) for k, v in marker_indices.items()},
             groups={k: v for k, v in match.groupdict().items() if not k.startswith("addr_")}
+        )
+
+    def match_symbol(self, symbol):
+        # We incrementally search both the emulator binary (where we have a symbol table) and the target (where we don't),
+        # continuing until there is exactly 1 match in the target for some shared prefix.
+        prefix_length = 4
+        prefix_length_step = 2
+        emu_rel_addr = self.emu_symtab[symbol] - EMU_MICROCODE_OFFSET
+        while True:
+            prefix = self.emu_bin[emu_rel_addr:emu_rel_addr + prefix_length]
+            ct = self.target_bin.count(prefix)
+            assert ct > 0, "Could not find unambiguous prefix match for %s" % symbol
+            if ct == 1:
+                break
+            prefix_length += prefix_length_step
+
+        addr = self.target_bin.index(prefix)
+        markers = {"TARGET": addr, "JUMP": addr}
+        # Figure out if we're about to break a 32-bit instruction
+        if " %x:" % (addr + 4) not in self.target_deasm:
+            markers["END"] = addr + 6
+        # BLegh
+        return MatchResult(
+            start=addr,
+            end=None,
+            groups={},
+            markers=markers
         )
 
     def _regmatch_asm(self, dest_signature):
@@ -120,7 +154,6 @@ class Patcher:
         jmp_mcode = [0, 0, 0, 0] # Filled in later by the relocator.
         jmp_insert_addr = dest_match.markers["JUMP"]
         end_patch_addr = jmp_insert_addr + len(jmp_mcode)
-        print("0x%x" % (jmp_insert_addr + MICROCODE_OFFSET))
         self._q(PatchBranchOffset(jmp_insert_addr, "%s__proxy" % dest_symbol, False))
 
         # Grab the stuff we're going to overwrite

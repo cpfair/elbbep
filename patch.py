@@ -1,22 +1,16 @@
 from patch_tools import Patcher
 
+bin_path = "/Volumes/MacintoshHD/Users/collinfair/Library/Application Support/Pebble SDK/SDKs/3.14/sdk-core/pebble/aplite/qemu/qemu_micro_flash.orig.bin"
+
 p = Patcher(
-    target_bin_path="/Volumes/MacintoshHD/Users/collinfair/Library/Application Support/Pebble SDK/SDKs/3.14/sdk-core/pebble/aplite/qemu/qemu_micro_flash.orig.bin",
+    target_bin_path=bin_path,
+    emu_elf_path="/Volumes/MacintoshHD/Users/collinfair/Library/Application Support/Pebble SDK/SDKs/3.14/sdk-core/pebble/aplite/qemu/aplite_sdk_debug.elf",
+    emu_bin_path=bin_path,
     patch_c_path="runtime/patch.c",
     other_c_paths=["runtime/text_shaper.c", "runtime/text_shaper_lut.c", "runtime/utf8.c", "runtime/rtl.c"]
 )
 
-p.wrap("graphics_draw_text_patch", p.match("""
-    JUMP
-    sub sp, #\d+
-    stmdb .+
-    END
-    sub sp, #\d+
-    mov .+
-    mov .+
-    mov .+
-    str .+
-"""))
+p.wrap("graphics_draw_text_patch", p.match_symbol("graphics_draw_text"))
 
 p.define_macro("LINEEND_SP_OFF", p.match("""
     mov r0.+
