@@ -13,6 +13,10 @@ PatchDefineSymbol = namedtuple("PatchDefineSymbol", "name address")
 PatchDefineMacro = namedtuple("PatchDefineMacro", "name value")
 MatchResult = namedtuple("MatchResult", "start end markers groups")
 
+CallsiteValue = namedtuple("CallsiteValue", "register")
+CallsiteValue.__new__.__defaults__ = (None,) * len(CallsiteValue._fields)
+CallsiteSP = namedtuple("CallsiteSP", "")
+
 class Patcher:
     def __init__(self, target_bin_path, emu_elf_path, emu_bin_path, patch_c_path, other_c_paths):
         self.target_bin_path = target_bin_path
@@ -22,6 +26,10 @@ class Patcher:
 
         self.target_bin = open(target_bin_path, "rb").read()
         self.target_deasm = subprocess.check_output(["arm-none-eabi-objdump", "-b", "binary", "-marm", "-Mforce-thumb", "-D", target_bin_path]).replace("\t", " ")
+        open("target.d", "w").write(self.target_deasm)
+        self.target_deasm_index = {}
+        for addr_match in re.finditer("$\s+([a-f0-9]+):", self.target_deasm, re.MULTILINE):
+            self.target_deasm_index[int(addr_match.group(1), 16)] = addr_match.start()
 
         symtab_txt = subprocess.check_output(["arm-none-eabi-nm", emu_elf_path])
         self.emu_symtab = {
@@ -31,10 +39,27 @@ class Patcher:
 
         self.op_queue = []
 
+    def _addr_step(self, addr, step):
+        addr += step
+        while True:
+            try:
+                self.target_deasm_index[addr]
+                return addr
+            except KeyError:
+                addr += step
+
+    def _deasm_index(self, addr, forward):
+        while True:
+            try:
+                return self.target_deasm_index[addr]
+            except KeyError:
+                assert forward is not None
+                addr += 1 if forward else -1
+
     def _q(self, op):
         self.op_queue.append(op)
 
-    def match(self, pattern):
+    def match(self, pattern, start=None, end=None, n=None):
         pattern_lines = pattern.split("\n")
         # Filter out MARKERS
         marker_indices = {}
@@ -47,19 +72,38 @@ class Patcher:
 
         pattern_composed = "\n".join((r"^\s*(?P<addr_%d>[a-f0-9]+):\s*[a-f0-9]+(?: [a-f0-9]+)?\s*%s$" % (idx, pattern.strip()) for idx, pattern in enumerate(filtered_pattern_lines)))
         print(pattern_composed)
-        # Find it in the deasm
         match_exp = re.compile(pattern_composed, re.MULTILINE)
-        matches = match_exp.finditer(self.target_deasm)
+
+        # Find it in the deasm
+        if start:
+            start_idx = self._deasm_index(start, False)
+        else:
+            start_idx = 0
+        if end:
+            end_idx = self._deasm_index(end, True)
+        else:
+            end_idx = len(self.target_deasm)
+
+        matches = match_exp.finditer(self.target_deasm[start_idx:end_idx])
         match = None
         try:
             match = next(matches)
         except StopIteration:
-            assert False, "Pattern %s not found in target" % pattern_lines
-        try:
-            next(matches)
-            assert False, "Pattern %s is ambiguous" % pattern_lines
-        except StopIteration:
-            pass
+            assert False, "Pattern %s not found in target" % filtered_pattern_lines
+
+        if n is None:
+            while True:
+                try:
+                    next(matches)
+                    assert False, "Pattern %s is ambiguous" % filtered_pattern_lines
+                except StopIteration:
+                    break
+        elif n >= 0:
+            for x in range(n):
+                match = next(matches)
+        else:
+            match_list = [match] + list(matches)
+            match = match_list[n]
 
         return MatchResult(
             start=int(match.group("addr_0"), 16),
@@ -95,31 +139,28 @@ class Patcher:
             markers=markers
         )
 
-    def _regmatch_asm(self, dest_signature):
+    def _regmatch_asm(self, args):
         dirtied_registers = set()
-        # Fish any register parameters they requested out of the stack.
-        # We assume the function doesn't have any other parameters...
-        requested_register_matches = list(re.finditer(r"(?P<type>REGISTER_MATCH|CALLSITE_SP)(?:\((?P<arg>[^)]+)\))?", dest_signature))
+        # Fish any arguments they requested out of the stack, or wherever.
         proxy_asm = ""
         trailing_proxy_asm = ""
-        stacked_args = max(0, len(requested_register_matches) - 4)
+        stacked_args = max(0, len(args) - 4)
         stacked_args_offset = stacked_args * 4
-        for arg_reg_no, requested_match in enumerate(requested_register_matches):
-            if requested_match.group("type") == "REGISTER_MATCH":
-                arg = requested_match.group("arg")
-                reg_no = int(arg.strip("r"))
-                if arg_reg_no < 4 and arg_reg_no == reg_no and arg_reg_no not in dirtied_registers:
-                    continue
-                dirtied_registers.add(arg_reg_no)
-                stack_off = reg_no * 4
-                if arg_reg_no < 4:
-                    proxy_asm += "LDR r%d, [sp, #%d]\n" % (arg_reg_no, stack_off)
-                else:
-                    stack_dest_off = -(arg_reg_no - 4) * 4 - stacked_args_offset
-                    proxy_asm += "LDR ip, [sp, #%d]\n" % stack_off
-                    proxy_asm += "STR ip, [sp, #%d]\n" % stack_dest_off
-
-            elif requested_match.group("type") == "CALLSITE_SP":
+        for arg_reg_no, arg in enumerate(args):
+            if type(arg) is CallsiteValue:
+                if arg.register:
+                    reg_no = int(arg.register.strip("r")) if hasattr(arg.register, "strip") else arg.register
+                    if arg_reg_no < 4 and arg_reg_no == reg_no and arg_reg_no not in dirtied_registers:
+                        continue
+                    dirtied_registers.add(arg_reg_no)
+                    stack_off = reg_no * 4
+                    if arg_reg_no < 4:
+                        proxy_asm += "LDR r%d, [sp, #%d]\n" % (arg_reg_no, stack_off)
+                    else:
+                        stack_dest_off = -(arg_reg_no - 4) * 4 - stacked_args_offset
+                        proxy_asm += "LDR ip, [sp, #%d]\n" % stack_off
+                        proxy_asm += "STR ip, [sp, #%d]\n" % stack_dest_off
+            elif type(arg) is CallsiteSP:
                 if arg_reg_no < 4:
                     proxy_asm += "ADD r%d, sp, #%d\n" % (arg_reg_no, 56)
                 else:
@@ -127,23 +168,13 @@ class Patcher:
                     proxy_asm += "ADD ip, sp, #%d\n" % 56
                     proxy_asm += "STR ip, [sp, #%d]\n" % stack_dest_off
             else:
-                raise RuntimeError("Unknown register parameter request type %s" % requested_match.group("type"))
+                raise RuntimeError("Unknown register parameter request %s" % type(arg))
         if stacked_args:
             proxy_asm += "SUB sp, #%d\n" % stacked_args_offset
             trailing_proxy_asm += "ADD sp, #%d\n" % stacked_args_offset
         return proxy_asm, trailing_proxy_asm
 
-    def _find_signature(self, name):
-        # Probabilistically correct.
-        matched_line = None
-        for line in self.patch_c.split("\n"):
-            if name in line and not line.startswith("//"):
-                if not matched_line or len(matched_line) < len(line):
-                    matched_line = line
-        assert matched_line
-        return matched_line
-
-    def inject(self, dest_symbol, dest_match, supplant=False):
+    def inject(self, dest_symbol, dest_match, args=[], supplant=False):
         # Patch insertion points must
         # - not have any instruction in the next 2 half-words that is PC-relative
         #   (as these are copied into the proxy stub)
@@ -162,7 +193,7 @@ class Patcher:
         # Assemble the proxy function to be assembled and linked
         # Preserve all registers of the caller
         proxy_asm = "PUSH.W {r0-r12, lr}\n"
-        arg_setup, arg_teardown = self._regmatch_asm(self._find_signature(dest_symbol))
+        arg_setup, arg_teardown = self._regmatch_asm(args)
         proxy_asm += arg_setup
         # Jump to injected function
         proxy_asm += "BLX %s\n" % dest_symbol

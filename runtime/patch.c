@@ -22,9 +22,8 @@ void graphics_draw_text_patch(GContext* ctx, char* text, GFont const font, const
     }
 }
 
-void render_wrap(void* REGISTER_MATCH(r0) gcontext, char** REGISTER_MATCH(r1) layout, bool REGISTER_MATCH(r6) more_text, char* CALLSITE_SP callsite_sp) {
-    // ^ I should probably do something about that r6
-
+typedef void (*RenderHandler)(void*, void*, void*);
+void render_wrap(void* gcontext, char** layout, bool more_text, RenderHandler handler, char* callsite_sp) {
     // First, apply RTL transforms.
     char* line_start, *line_end, *line_end_1, *line_end_2;
     line_start = *layout;
@@ -39,16 +38,10 @@ void render_wrap(void* REGISTER_MATCH(r0) gcontext, char** REGISTER_MATCH(r1) la
 
     // Call through to actual render handler.
     void* mystery_argument = *(void**)(callsite_sp + RENDERHDLR_ARG3_SP_OFF);
-    typedef void (*RenderHandler)(void*, void*, void*);
-    typedef struct RenderHandlerIndirect {
-        void* things;
-        RenderHandler handler;
-    } RenderHandlerIndirect;
-    RenderHandlerIndirect *handler_idr = *(RenderHandlerIndirect**)(callsite_sp + RENDERHDLR_SP_OFF);
-    handler_idr->handler(gcontext, layout, mystery_argument);
+    handler(gcontext, layout, mystery_argument);
 
     // If we applied the RTL operations once, do them again to undo the changes.
-    if (line_start) {
+    if (line_start >= (char*)SRAM_BASE) {
         rtl_apply(line_start, line_end);
     }
 }
