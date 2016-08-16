@@ -125,6 +125,7 @@ class Font:
         self.offset_tables = [[] for i in range(self.table_size)]
         self.offset_size_bytes = 4
         self.features = 0
+        self.codepoints_map = {}
 
         self.glyph_header = ''.join((
             '<',  # little_endian
@@ -159,6 +160,11 @@ class Font:
                                 "Font: {}".format(self.ttf_path))
         else:
             self.regex = None
+
+    def set_codepoint_map(self, map_path):
+        codepoints_file = open(map_path)
+        codepoints_map = json.load(codepoints_file)
+        self.codepoints_map = {int(x): y for x, y in codepoints_map.items()}
 
     def set_codepoint_list(self, list_path):
         codepoints_file = open(list_path)
@@ -412,25 +418,30 @@ class Font:
                                                               glyph_indices_lookup)
         glyph_entries.append((WILDCARD_CODEPOINT, offset))
 
-        while gindex:
-            # Hard limit on the number of glyphs in a font
-            if (self.number_of_glyphs > self.max_glyphs):
-                break
+        if not self.codepoints_map:
+            while gindex:
+                # Hard limit on the number of glyphs in a font
+                if (self.number_of_glyphs > self.max_glyphs):
+                    break
 
-            if (codepoint is WILDCARD_CODEPOINT):
-                raise Exception('Wildcard codepoint is used for something else in this font.'
-                                'Font {}'.format(self.ttf_path))
+                if (codepoint is WILDCARD_CODEPOINT):
+                    raise Exception('Wildcard codepoint is used for something else in this font.'
+                                    'Font {}'.format(self.ttf_path))
 
-            if (gindex is 0):
-                raise Exception('0 index is reused by a non wildcard glyph. Font {}'.
-                                format(self.ttf_path))
+                if (gindex is 0):
+                    raise Exception('0 index is reused by a non wildcard glyph. Font {}'.
+                                    format(self.ttf_path))
 
-            if (codepoint_is_in_subset(codepoint)):
-                offset, next_offset, glyph_indices_lookup = add_glyph(codepoint, next_offset,
-                                                                      gindex, glyph_indices_lookup)
+                if (codepoint_is_in_subset(codepoint)):
+                    offset, next_offset, glyph_indices_lookup = add_glyph(codepoint, next_offset,
+                                                                          gindex, glyph_indices_lookup)
+                    glyph_entries.append((codepoint, offset))
+
+                codepoint, gindex = self.face.get_next_char(codepoint, gindex)
+        else:
+            for codepoint, gindex in sorted(self.codepoints_map.items(), key=lambda x: x[0]):
+                offset, next_offset, glyph_indices_lookup = add_glyph(codepoint, next_offset, gindex, glyph_indices_lookup)
                 glyph_entries.append((codepoint, offset))
-
-            codepoint, gindex = self.face.get_next_char(codepoint, gindex)
 
         # Decide if we need 2 byte or 4 byte offsets
         glyph_data_bytes = sum(len(glyph) for glyph in self.glyph_table)
@@ -480,6 +491,8 @@ def cmd_pfo(args):
         f.set_regex_filter(args.filter)
     if (args.list):
         f.set_codepoint_list(args.list)
+    if (args.map):
+        f.set_codepoint_map(args.map)
     if (args.compress):
         f.set_compression(args.compress)
     f.set_version(int(args.version))
@@ -532,6 +545,7 @@ def process_cmd_line_args():
                                  "should be included in the output")
     pbi_parser.add_argument('--list',
                             help="json list of characters to include")
+    pbi_parser.add_argument('--map', help="json map of codept->glyphs to embed")
     pbi_parser.add_argument('--legacy', action='store_true',
                             help="use legacy rasterizer (non-mono) to preserve font dimensions")
     pbi_parser.add_argument('input_ttf', metavar='INPUT_TTF', help="The ttf to process")
