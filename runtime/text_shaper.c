@@ -28,6 +28,30 @@ static const ShaperLUTEntry* find_lut_entry_by_codept(uint16_t codept) {
     return NULL;
 }
 
+static uint16_t find_ligature_by_codepts(uint16_t* pattern, size_t pattern_size) {
+    const int REPLACEMENT_CODEPT_MASK = (1 << 15);
+    bool searching = true;
+    size_t pattern_idx = 0;
+    const uint16_t * ligature_lut = (uint16_t*)ARABIC_LIGATURE_LUT;
+    for (int i = 0; i < ARABIC_LIGATURE_LUT_SIZE / sizeof(uint16_t); ++i) {
+        if (searching) {
+            if (ligature_lut[i] == pattern[pattern_idx] && pattern_idx < pattern_size) {
+                pattern_idx++;
+            } else {
+                // Is this the replacement codept?
+                if (ligature_lut[i] & REPLACEMENT_CODEPT_MASK) {
+                    return ligature_lut[i] & ~REPLACEMENT_CODEPT_MASK;
+                }
+                searching = false;
+                pattern_idx = 0;
+            }
+        } else if (ligature_lut[i] & REPLACEMENT_CODEPT_MASK) {
+            searching = true;
+        }
+    }
+    return 0;
+}
+
 bool shape_text(char* text) {
     ShaperState state = STATE_INITIAL;
     bool did_shape = false;
@@ -37,30 +61,45 @@ bool shape_text(char* text) {
         return false;
     }
 
+    const int NEXT_CODEPT = 1;
+    const int THIS_CODEPT = 0;
+
     char* next_codept_ptr = ptr;
-    uint16_t next_codept = read_utf8(&ptr);
-    const ShaperLUTEntry* next_lut_entry = find_lut_entry_by_codept(next_codept);
-    uint16_t this_codept = 0, last_codept = 0;
+    uint16_t codept_buffer[2];
+    codept_buffer[NEXT_CODEPT] = read_utf8(&ptr);
+    const ShaperLUTEntry* next_lut_entry = find_lut_entry_by_codept(codept_buffer[NEXT_CODEPT]);
     char* this_codept_ptr = NULL, *last_codept_ptr = NULL;
+    int ligature_span = 0;
     const ShaperLUTEntry* this_lut_entry;
     do {
         // Read forward one.
-        last_codept = this_codept;
         last_codept_ptr = this_codept_ptr;
-        this_codept = next_codept;
+        codept_buffer[THIS_CODEPT] = codept_buffer[NEXT_CODEPT];
         this_codept_ptr = next_codept_ptr;
         this_lut_entry = next_lut_entry;
         if (*ptr) {
             next_codept_ptr = ptr;
-            next_codept = read_utf8(&ptr);
-            next_lut_entry = find_lut_entry_by_codept(next_codept);
+            codept_buffer[NEXT_CODEPT] = read_utf8(&ptr);
+
+            // Check ligature state.
+            uint16_t lig_codept = find_ligature_by_codepts(codept_buffer, 2);
+            if (lig_codept) {
+                codept_buffer[NEXT_CODEPT] = lig_codept;
+                // This only works with 2-char ligatures.
+                ligature_span = 1;
+            }
+
+            next_lut_entry = find_lut_entry_by_codept(codept_buffer[NEXT_CODEPT]);
         } else {
-            next_codept = 0;
+            codept_buffer[NEXT_CODEPT] = 0;
             next_codept_ptr = 0;
             next_lut_entry = NULL;
         }
 
-        if (this_lut_entry) {
+        if (ligature_span) {
+            ligature_span--;
+            write_utf8(this_codept_ptr, ZERO_WIDTH_CODEPT);
+        } else if (this_lut_entry) {
             did_shape = true;
             if (!next_lut_entry || this_lut_entry->medial_codept == this_lut_entry->final_codept) {
                 // Final, or isolated form.
@@ -80,7 +119,7 @@ bool shape_text(char* text) {
             // Not a shapable character - reset the state.
             state = STATE_INITIAL;
         }
-    } while (next_codept);
+    } while (codept_buffer[NEXT_CODEPT]);
 
     return did_shape;
 }

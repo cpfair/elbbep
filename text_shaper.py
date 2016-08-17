@@ -6,34 +6,38 @@ import struct
 # It also generates the glyph-codepoint mapping used to produce the Arabic fonts.
 # It requires the hb-shape CLI tool.
 
-font_path = "/Volumes/MacintoshHD/Users/collinfair/Pebble/quran/resources/fonts/me_quran.ttf"
-font_size = 22
+# font_path = "/Volumes/MacintoshHD/Users/collinfair/Pebble/quran/resources/fonts/me_quran.ttf"
+font_path = "/Library/Fonts/MyriadArabic-Regular.otf"
+font_size = 17
 
-def generate_forms():
-    alphabet = "غظضذخثتشرقصفعسنملكيطحزوهدجبا"
-    kashida = "ـ"
-    missing_glyph = None
+# The question mark is here so it gets shaped to
+shaped_alphabet = "غظضذخثتشرقصفعسنملكيطحزوهدجبا"
+kashida = "ـ"
+supplemental_alphabet = kashida + "١٢٣٤٥٦٧٨٩٠؟؛،"
+ligatures = ["لا"]
 
-    def shape_text(txt):
-        process = subprocess.Popen(['hb-shape', font_path, '--output-format=json', '--no-glyph-names'], stdout=subprocess.PIPE, stdin=subprocess.PIPE)
-        out, err = process.communicate(txt.encode("utf-8"))
-        glyphs = list(json.loads(out.decode("utf-8")))
-        # Check for missing glyphs
-        missing_chars = set()
-        for glyph in glyphs:
-            if glyph["g"] == missing_glyph:
-                missing_char = txt[glyph["cl"]:glyph["cl"]+1]
-                missing_chars.add(missing_char)
+missing_glyph = None
+def shape_text(txt):
+    process = subprocess.Popen(['hb-shape', font_path, '--output-format=json', '--no-glyph-names'], stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+    out, err = process.communicate(txt.encode("utf-8"))
+    glyphs = list(json.loads(out.decode("utf-8")))
+    # Check for missing glyphs
+    missing_chars = set()
+    for glyph in glyphs:
+        if glyph["g"] == missing_glyph:
+            missing_char = txt[glyph["cl"]:glyph["cl"]+1]
+            missing_chars.add(missing_char)
 
-        if missing_chars:
-            raise Exception("The following characters are missing from the font: %s" % missing_chars)
-        return glyphs
+    if missing_chars:
+        raise Exception("The following characters are missing from the font: %s" % missing_chars)
+    return glyphs
 
-    missing_glyph = shape_text("ᓄ")[0]["g"]
-    kashida_glyph = shape_text(kashida)[0]["g"]
+missing_glyph = shape_text("ᓄ")[0]["g"]
+kashida_glyph = shape_text(kashida)[0]["g"]
 
+def generate_forms(alphabet, ligatures):
     forms = {}
-    for ch in alphabet:
+    for ch in [ch for ch in alphabet] + ligatures:
         ch_comps = [ch, ch + kashida, kashida + ch + kashida, kashida + ch]
         ch_forms = []
         for ch_comp in ch_comps:
@@ -48,27 +52,45 @@ def generate_forms():
 def pack_lut(forms):
     # LUT is simply repeated <true codept, isolated codept, initial, medial, final>
     # The runtime automatically detects characters like alef that restart the SM.
+    # Ligatures are assigned their own "true" codepoints.
+    # The ligature table is of form <prefixn>,...,<prefix0>,<replacement> (where replacement has its MSB set)
     # We recycle some of the dustier blocks in the 2-byte UTF8 range.
     available_codepts = chain(range(0x700, 0x750), range(0x780, 0x7FF + 1))
     selected_glyphs = {}
     lut_data = bytes()
+    lig_data = bytes()
     for ch in sorted(list(forms.keys())):
         ch_forms = forms[ch]
-        line_parts = [ord(ch)]
-        for glyph in ch_forms:
+        if len(ch) == 1:
+            true_codept = ord(ch)
+        else:
+            assert len(ch) <= 2, "Ligature handling supports 2-char patterns only"
+            # A ligature - also update the ligature table.
+            true_codept = next(available_codepts)
+            for c in ch:
+                lig_data += struct.pack("<H", ord(c))
+            lig_data += struct.pack("<H", true_codept | (1 << 15))
+        line_parts = [true_codept]
+        for idx, glyph in enumerate(ch_forms):
             if glyph not in selected_glyphs:
                 selected_glyphs[glyph] = next(available_codepts)
             line_parts.append(selected_glyphs[glyph])
         lut_data += struct.pack("<HHHHH", *line_parts)
-    return lut_data, selected_glyphs
+    zero_width_codept = next(available_codepts)
+    return lut_data, lig_data, selected_glyphs, zero_width_codept
 
-def build_font(selected_glyphs):
+def supplement_selected_glyphs(selected_glyphs, alphabet):
+    for ch in alphabet:
+        glyph = shape_text(ch)[0]["g"]
+        selected_glyphs[glyph] = ord(ch)
+
+def build_font(selected_glyphs, zero_width_codept):
     # Despite having been written about 5 minutes apart, fontgen's map option expects a different dict than we have on hand.
     selected_codepts = {v: k for k, v in selected_glyphs.items()}
     json.dump(selected_codepts, open("glyphs-arabic.json", "w"))
-    subprocess.check_call(["python", "pebble-sdk/fontgen.py", "pfo", str(font_size), "--map", "glyphs-arabic.json", font_path, "arabic.pfo"])
+    subprocess.check_call(["python", "pebble-sdk/fontgen.py", "pfo", str(font_size), "--map", "glyphs-arabic.json", "--zero-width-codept", str(zero_width_codept), font_path, "arabic.pfo"])
 
-def write_lut(lut_data):
+def write_lut(lut_data, lig_data, zero_width_codept):
     lut_h = open("runtime/text_shaper_lut.h", "w")
     lut_h.write("#include \"pebble.h\"\n// THIS FILE IS AUTOMATICALLY GENERATED\n\n")
     lut_c = open("runtime/text_shaper_lut.c", "w")
@@ -77,17 +99,23 @@ def write_lut(lut_data):
         lut_h.write("extern %s %s[];\n" % (datatype, name))
         lut_h.write("#define %s_SIZE %d\n" % (name, len(elements)))
         lut_c.write("%s %s[] = {%s};\n" % (datatype, name, ", ".join("0x%x" % x for x in elements)))
+    def write_define(name, value):
+        lut_h.write("#define %s %s\n" % (name.upper(), value))
     # This isn't a real lookup table, since you can't index directly into it.
     # For shame - but doing so would double the memory footprint in exchange for saving a relatively small loop?
     write_array("const uint8_t", "ARABIC_SHAPER_LUT", lut_data)
+    write_array("const uint8_t", "ARABIC_LIGATURE_LUT", lig_data)
+    write_define("ZERO_WIDTH_CODEPT", zero_width_codept)
 
 # Get the glyph indices corresponding to the forms of the various letters.
-character_forms = generate_forms()
+character_forms = generate_forms(shaped_alphabet, ligatures)
 # Build the LUT
 # This also assigns codepoints to the glyph within the defined ranges
-lut_data, selected_glyphs = pack_lut(character_forms)
+lut_data, lig_data, selected_glyphs, zero_width_codept = pack_lut(character_forms)
 print(character_forms)
-# Write the LUT
-write_lut(lut_data)
-# Build the PFO
-build_font(selected_glyphs)
+# Add un-shaped codepoints to the font.
+supplement_selected_glyphs(selected_glyphs, supplemental_alphabet)
+# Write the LUTs.
+write_lut(lut_data, lig_data, zero_width_codept)
+# Build the PFO.
+build_font(selected_glyphs, zero_width_codept)

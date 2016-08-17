@@ -126,6 +126,7 @@ class Font:
         self.offset_size_bytes = 4
         self.features = 0
         self.codepoints_map = {}
+        self.zero_width_codept = None
 
         self.glyph_header = ''.join((
             '<',  # little_endian
@@ -150,6 +151,9 @@ class Font:
 
     def set_tracking_adjust(self, adjust):
         self.tracking_adjust = adjust
+
+    def set_zero_width_codept(self, zero_width_codept):
+        self.zero_width_codept = int(zero_width_codept)
 
     def set_regex_filter(self, regex_string):
         if regex_string != ".*":
@@ -285,6 +289,8 @@ class Font:
 
 
     def glyph_bits(self, gindex):
+        if gindex == self.zero_width_codept:
+            return struct.pack(self.glyph_header, 0, 0, 0, 0, 0)
         flags = (freetype.FT_LOAD_RENDER if self.legacy else
             freetype.FT_LOAD_RENDER | freetype.FT_LOAD_MONOCHROME | freetype.FT_LOAD_TARGET_MONO)
         self.face.load_glyph(gindex, flags)
@@ -418,6 +424,12 @@ class Font:
                                                               glyph_indices_lookup)
         glyph_entries.append((WILDCARD_CODEPOINT, offset))
 
+        # add zero-width glyph, if desired
+        if self.zero_width_codept is not None:
+            offset, next_offset, glyph_indices_lookup = add_glyph(self.zero_width_codept, next_offset, self.zero_width_codept,
+                                                                  glyph_indices_lookup)
+            glyph_entries.append((self.zero_width_codept, offset))
+
         if not self.codepoints_map:
             while gindex:
                 # Hard limit on the number of glyphs in a font
@@ -495,6 +507,8 @@ def cmd_pfo(args):
         f.set_codepoint_map(args.map)
     if (args.compress):
         f.set_compression(args.compress)
+    if (args.zero_width_codept):
+        f.set_zero_width_codept(args.zero_width_codept)
     f.set_version(int(args.version))
     f.convert_to_pfo(args.output_pfo)
 
@@ -546,6 +560,7 @@ def process_cmd_line_args():
     pbi_parser.add_argument('--list',
                             help="json list of characters to include")
     pbi_parser.add_argument('--map', help="json map of codept->glyphs to embed")
+    pbi_parser.add_argument('--zero-width-codept', help="codepoint to assign a zero-width glyph")
     pbi_parser.add_argument('--legacy', action='store_true',
                             help="use legacy rasterizer (non-mono) to preserve font dimensions")
     pbi_parser.add_argument('input_ttf', metavar='INPUT_TTF', help="The ttf to process")
