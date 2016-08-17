@@ -62,9 +62,15 @@ render_handler_call_match = p.match(r"""
     blx (?P<hdlr_reg>r\d+)
     b.+
 """)
+
+more_text_reg_match = p.match(r"c(mp|bnz).+r(?P<reg>\d+).*", start=layout_driver_addr, end=render_handler_call_match.start, n=-1)
+more_text_reg_value = CallsiteValue(register=more_text_reg_match.groups["reg"])
+print("More-text register matched at %x" % more_text_reg_match.start)
+print("More-text register %s" % more_text_reg_match.groups["reg"])
+
 hdlr_reg_value = CallsiteValue(register=render_handler_call_match.groups["hdlr_reg"])
 p.define_macro("RENDERHDLR_ARG3_SP_OFF", render_handler_call_match.groups["arg3_sp_off"])
 p.inject("render_wrap", render_handler_call_match, supplant=True,
-    args=[CallsiteValue(register=0), CallsiteValue(register=1), CallsiteValue(register=6), hdlr_reg_value, CallsiteSP()])
+    args=[CallsiteValue(register=0), CallsiteValue(register=1), more_text_reg_value, hdlr_reg_value, CallsiteSP()])
 
 p.finalize(output_bin_path)

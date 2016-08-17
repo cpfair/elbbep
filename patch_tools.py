@@ -25,7 +25,8 @@ class Patcher:
         self.other_c_paths = other_c_paths
 
         self.target_bin = open(target_bin_path, "rb").read()
-        self.target_deasm = subprocess.check_output(["arm-none-eabi-objdump", "-b", "binary", "-marm", "-Mforce-thumb", "-D", target_bin_path]).replace("\t", " ")
+        self.target_deasm = subprocess.check_output(["arm-none-eabi-objdump", "-b", "binary", "-marm", "-Mforce-thumb", "-D", target_bin_path])
+        self.target_deasm = self.target_deasm.replace("\t", " ").replace("fp", "r11")
         open("target.d", "w").write(self.target_deasm)
         self.target_deasm_index = {}
         for addr_match in re.finditer("$\s+([a-f0-9]+):", self.target_deasm, re.MULTILINE):
