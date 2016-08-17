@@ -3,9 +3,6 @@ import struct
 import subprocess
 from collections import namedtuple
 
-MICROCODE_OFFSET = 0x8000000
-EMU_MICROCODE_OFFSET = 0x8000000
-
 PatchOverwrite = namedtuple("PatchOverwrite", "address content")
 PatchBranchOffset = namedtuple("PatchBranchOffset", "address symbol link")
 PatchAppendAsm = namedtuple("PatchAppendAsm", "symbol content")
@@ -37,6 +34,22 @@ class Patcher:
             m.group("name"): int(m.group("addr"), 16) for m in re.finditer(r"(?P<addr>[a-f0-9]+)\s+\w+\s+(?P<name>\w+)$", symtab_txt, re.MULTILINE)
         }
         self.emu_bin = open(emu_bin_path, "rb").read()
+
+        self.target = "emulator" if emu_bin_path == self.target_bin_path else "hardware"
+        if self.target == "hardware":
+            # Bootloader is 16k
+            self.MICROCODE_OFFSET = 0x8000000 + 0x4000
+            # The firmware has a trailing footer with a GNU build ID tag,
+            # plus a struct that the phone app uses to reject bad firmware with a nondescript error.
+            # This struct seems to be 47 bytes long, and must be present at the end of the image.
+            # (the GNU build ID does not)
+            self.trailing_bin_content = self.target_bin[-47:]
+        elif self.target == "emulator":
+            # The emulator bootloader (or whatever) is baked into the main image.
+            self.MICROCODE_OFFSET = 0x8000000
+            # The emulator doesn't care.
+            self.trailing_bin_content = ""
+        self.EMU_MICROCODE_OFFSET = 0x8000000
 
         self.op_queue = []
 
@@ -118,7 +131,7 @@ class Patcher:
         # continuing until there is exactly 1 match in the target for some shared prefix.
         prefix_length = 4
         prefix_length_step = 2
-        emu_rel_addr = self.emu_symtab[symbol] - EMU_MICROCODE_OFFSET
+        emu_rel_addr = self.emu_symtab[symbol] - self.EMU_MICROCODE_OFFSET
         while True:
             prefix = self.emu_bin[emu_rel_addr:emu_rel_addr + prefix_length]
             ct = self.target_bin.count(prefix)
@@ -208,7 +221,7 @@ class Patcher:
         # Return to original site
         proxy_asm += "B %s__return\n" % dest_symbol
 
-        self._q(PatchDefineSymbol("%s__return" % dest_symbol, MICROCODE_OFFSET + end_patch_addr))
+        self._q(PatchDefineSymbol("%s__return" % dest_symbol, self.MICROCODE_OFFSET + end_patch_addr))
         self._q(PatchAppendAsm("%s__proxy" % dest_symbol, proxy_asm))
 
     def wrap(self, dest_symbol, dest_match):
@@ -222,7 +235,6 @@ class Patcher:
         jmp_insert_addr = dest_match.markers["JUMP"]
         end_patch_addr = dest_match.markers.get("END", jmp_insert_addr + 4)
 
-        print("0x%x" % jmp_insert_addr)
         self._q(PatchBranchOffset(jmp_insert_addr, dest_symbol, False))
 
         # Grab the stuff we're going to overwrite
@@ -230,15 +242,13 @@ class Patcher:
 
         # Make the pass-through function for the wrapper to call, should it elect to do so.
         passthru_asm = ""
-        # Prep to return to the original function
-        # passthru_asm += "LDR ip, =0x%x\n" % (MICROCODE_OFFSET + jmp_insert_addr + len(jmp_mcode) + 1)
         # Perform whatever actions we overwrote.
         for byte in overwrote_mcode:
             passthru_asm += ".byte 0x%x\n" % ord(byte)
 
         # Return to original site
         passthru_asm += "B %s__return\n" % dest_symbol
-        self._q(PatchDefineSymbol("%s__return" % dest_symbol, MICROCODE_OFFSET + end_patch_addr))
+        self._q(PatchDefineSymbol("%s__return" % dest_symbol, self.MICROCODE_OFFSET + end_patch_addr))
         self._q(PatchAppendAsm("%s__passthru" % dest_symbol, passthru_asm))
 
     def define_function(self, dest_symbol, target_addr):
@@ -276,7 +286,7 @@ class Patcher:
         open("patch.auto.h", "w").write(patch_h_composed)
         open("patch.comp.s", "w").write(patch_s_composed)
         ldscript = open("patch.ld", "r").read()
-        ldscript = ldscript.replace("@TARGET_END@", "0x%x" % (len(self.target_bin) + MICROCODE_OFFSET))
+        ldscript = ldscript.replace("@TARGET_END@", "0x%x" % (len(self.target_bin) + self.MICROCODE_OFFSET))
         open("patch.comp.ld", "w").write(ldscript)
         subprocess.check_call(["arm-none-eabi-gcc"] + cflags + ["-o", "patch.comp.o", "patch.comp.s", self.patch_c_path] + self.other_c_paths)
 
@@ -294,7 +304,7 @@ class Patcher:
         for op in self.op_queue:
             if type(op) is PatchBranchOffset:
                 # Here we're inserting a wide branch
-                final_addr = symtab[op.symbol]
+                final_addr = symtab[op.symbol] - self.MICROCODE_OFFSET
                 offset = (final_addr - op.address - 4) >> 1
                 instr = 0b11110000000000001001000000000000
                 s = 0 if offset > 0 else 1
@@ -311,6 +321,10 @@ class Patcher:
 
         # Finally, append the patch code to the target binary
         subprocess.check_call(["arm-none-eabi-objcopy", "patch.comp.o", "-S", "-O", "binary", "patch.comp.bin"])
+        # Make sure patch code will be aligned
+        if len(self.target_bin) % 2 == 1:
+            self.target_bin += "\0"
         self.target_bin += open("patch.comp.bin", "rb").read()
+        self.target_bin += self.trailing_bin_content
         open(destination_bin_path, "wb").write(self.target_bin)
         open("final.bin", "wb").write(self.target_bin)
