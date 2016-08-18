@@ -126,7 +126,9 @@ class Font:
         self.offset_size_bytes = 4
         self.features = 0
         self.codepoints_map = {}
-        self.zero_width_codept = None
+        self.zero_width_codepts = None
+        self.shift = (0, 0)
+        self.threshold = 127
 
         self.glyph_header = ''.join((
             '<',  # little_endian
@@ -152,9 +154,6 @@ class Font:
     def set_tracking_adjust(self, adjust):
         self.tracking_adjust = adjust
 
-    def set_zero_width_codept(self, zero_width_codept):
-        self.zero_width_codept = int(zero_width_codept)
-
     def set_regex_filter(self, regex_string):
         if regex_string != ".*":
             try:
@@ -174,6 +173,17 @@ class Font:
         codepoints_file = open(list_path)
         codepoints_json = json.load(codepoints_file)
         self.codepoints = [int(cp) for cp in codepoints_json["codepoints"]]
+
+    def set_zero_width_codept_list(self, list_path):
+        codepoints_file = open(list_path)
+        codepoints_json = json.load(codepoints_file)
+        self.zero_width_codepts = [int(cp) for cp in codepoints_json["codepoints"]]
+
+    def set_shift(self, shift):
+        self.shift = shift
+
+    def set_threshold(self, threshold):
+        self.threshold = threshold
 
     def is_supported_glyph(self, codepoint):
         return (self.face.get_char_index(codepoint) > 0 or
@@ -289,7 +299,7 @@ class Font:
 
 
     def glyph_bits(self, gindex):
-        if gindex == self.zero_width_codept:
+        if gindex in self.zero_width_codepts:
             return struct.pack(self.glyph_header, 0, 0, 0, 0, 0)
         flags = (freetype.FT_LOAD_RENDER if self.legacy else
             freetype.FT_LOAD_RENDER | freetype.FT_LOAD_MONOCHROME | freetype.FT_LOAD_TARGET_MONO)
@@ -315,7 +325,7 @@ class Font:
                     glyph_bitmap.extend(row[:bitmap.width])
             elif pixel_mode == 2:  # grey font, 255 bits per pixel
                 for val in bitmap.buffer:
-                    glyph_bitmap.extend([1 if val > 127 else 0])
+                    glyph_bitmap.extend([1 if val > self.threshold else 0])
             else:
                 # freetype-py should never give us a value not in (1,2)
                 raise Exception("Unsupported pixel mode: {}. Font {}".
@@ -336,6 +346,8 @@ class Font:
                         w |= bit << index
                     glyph_packed.append(struct.pack('<I', w))
 
+        left += self.shift[0]
+        bottom += self.shift[1]
         glyph_header = struct.pack(self.glyph_header, width, height, left, bottom, advance)
 
         return glyph_header + ''.join(glyph_packed)
@@ -424,11 +436,12 @@ class Font:
                                                               glyph_indices_lookup)
         glyph_entries.append((WILDCARD_CODEPOINT, offset))
 
-        # add zero-width glyph, if desired
-        if self.zero_width_codept is not None:
-            offset, next_offset, glyph_indices_lookup = add_glyph(self.zero_width_codept, next_offset, self.zero_width_codept,
+        # add zero-width codept(s), if desired
+        if self.zero_width_codepts:
+            offset, next_offset, glyph_indices_lookup = add_glyph(self.zero_width_codepts[0], next_offset, self.zero_width_codepts[0],
                                                                   glyph_indices_lookup)
-            glyph_entries.append((self.zero_width_codept, offset))
+            for codept in self.zero_width_codepts:
+                glyph_entries.append((codept, offset))
 
         if not self.codepoints_map:
             while gindex:
@@ -507,8 +520,12 @@ def cmd_pfo(args):
         f.set_codepoint_map(args.map)
     if (args.compress):
         f.set_compression(args.compress)
-    if (args.zero_width_codept):
-        f.set_zero_width_codept(args.zero_width_codept)
+    if (args.zero_width_codept_list):
+        f.set_zero_width_codept_list(args.zero_width_codept_list)
+    if (args.shift):
+        f.set_shift(tuple((int(x) for x in args.shift.split(","))))
+    if (args.threshold):
+        f.set_threshold(int(args.threshold))
     f.set_version(int(args.version))
     f.convert_to_pfo(args.output_pfo)
 
@@ -560,7 +577,11 @@ def process_cmd_line_args():
     pbi_parser.add_argument('--list',
                             help="json list of characters to include")
     pbi_parser.add_argument('--map', help="json map of codept->glyphs to embed")
-    pbi_parser.add_argument('--zero-width-codept', help="codepoint to assign a zero-width glyph")
+    pbi_parser.add_argument('--dump-bitmaps', help="directory to write editable bitmaps into")
+    pbi_parser.add_argument('--collect-bitmaps', help="directory to read bitmaps from, overriding TTF input")
+    pbi_parser.add_argument('--zero-width-codept-list', help="json list of codepoints to assign a zero-width glyph")
+    pbi_parser.add_argument('--shift', help="dx,dy to shift glyphs by")
+    pbi_parser.add_argument('--threshold', help="black/white cutoff value (0-255)", type=int)
     pbi_parser.add_argument('--legacy', action='store_true',
                             help="use legacy rasterizer (non-mono) to preserve font dimensions")
     pbi_parser.add_argument('input_ttf', metavar='INPUT_TTF', help="The ttf to process")
