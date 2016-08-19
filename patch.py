@@ -70,10 +70,22 @@ render_handler_call_match = p.match(r"""
 
 more_text_reg_match = p.match(r"c(mp|bnz).+r(?P<reg>\d+).*", start=layout_driver_addr, end=render_handler_call_match.start, n=-1)
 more_text_reg_value = CallsiteValue(register=more_text_reg_match.groups["reg"])
-print("More-text register matched at %x" % more_text_reg_match.start)
 print("More-text register %s" % more_text_reg_match.groups["reg"])
 
 hdlr_reg_value = CallsiteValue(register=render_handler_call_match.groups["hdlr_reg"])
+print("Handler function pointer register %s" % hdlr_reg_value.register)
+
+if int(hdlr_reg_value.register.strip("r")) == int(more_text_reg_value.register.strip("r")):
+    # I saw this in the PS firmware image - the more-text register happened to be reused for the handler itself.
+    # There's another place to find it - at the end of the entire function right before it loops back to render another line
+    # I don't use this as the primary source as it's far removed from the actual render call
+    # So the register might be repurposed by then
+    more_text_reg_match = p.match(r"c(mp|bnz).+r(?P<reg>\d+).*", start=layout_driver_addr, end=layout_driver_end_match.start, n=-3)
+    more_text_reg_value = CallsiteValue(register=more_text_reg_match.groups["reg"])
+    print("More-text register re-used for hdlr address!")
+    print("More-text register re-matched to %s" % more_text_reg_match.groups["reg"])
+assert int(more_text_reg_value.register.strip("r")) > 2
+
 p.define_macro("RENDERHDLR_ARG3_SP_OFF", render_handler_call_match.groups["arg3_sp_off"])
 p.inject("render_wrap", render_handler_call_match, supplant=True,
     args=[CallsiteValue(register=0), CallsiteValue(register=1), more_text_reg_value, hdlr_reg_value, CallsiteSP()])
