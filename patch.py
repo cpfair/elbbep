@@ -1,23 +1,15 @@
-import shutil, os
+import sys
 from patch_tools import Patcher, CallsiteValue, CallsiteSP
 
-platform = "basalt"
+if len(sys.argv) < 6:
+    print("patch.py platform tintin_fw.bin qemu_bin.elf qemu_bin.bin tintin_fw.out.bin")
 
-bin_path = "/Volumes/MacintoshHD/Users/collinfair/Library/Application Support/Pebble SDK/SDKs/3.14/sdk-core/pebble/%s/qemu/qemu_micro_flash.orig.bin" % platform
-output_bin_path = "/Volumes/MacintoshHD/Users/collinfair/Library/Application Support/Pebble SDK/SDKs/3.14/sdk-core/pebble/%s/qemu/qemu_micro_flash.bin" % platform
-
-bin_path = "/Volumes/MacintoshHD/Users/collinfair/Pebble/pebble-firmware-utils/Pebble-3.14-snowy_dvt/tintin_fw.orig.bin"
-output_bin_path = "/Volumes/MacintoshHD/Users/collinfair/Pebble/pebble-firmware-utils/Pebble-3.14-snowy_dvt/tintin_fw.bin"
-
-if not os.path.exists(bin_path):
-    shutil.copyfile(output_bin_path, bin_path)
-elf_path = "/Volumes/MacintoshHD/Users/collinfair/Library/Application Support/Pebble SDK/SDKs/3.14/sdk-core/pebble/%s/qemu/%s_sdk_debug.elf" % (platform, platform)
-elf_bin_path = "/Volumes/MacintoshHD/Users/collinfair/Library/Application Support/Pebble SDK/SDKs/3.14/sdk-core/pebble/%s/qemu/qemu_micro_flash.orig.bin" % (platform)
+platform = sys.argv[1]
 
 p = Patcher(
-    target_bin_path=bin_path,
-    emu_elf_path=elf_path,
-    emu_bin_path=elf_bin_path,
+    target_bin_path=sys.argv[2],
+    emu_elf_path=sys.argv[3],
+    emu_bin_path=sys.argv[4],
     patch_c_path="runtime/patch.c",
     other_c_paths=["runtime/text_shaper.c", "runtime/text_shaper_lut.c", "runtime/utf8.c", "runtime/rtl.c"]
 )
@@ -90,4 +82,4 @@ p.define_macro("RENDERHDLR_ARG3_SP_OFF", render_handler_call_match.groups["arg3_
 p.inject("render_wrap", render_handler_call_match, supplant=True,
     args=[CallsiteValue(register=0), CallsiteValue(register=1), more_text_reg_value, hdlr_reg_value, CallsiteSP()])
 
-p.finalize(output_bin_path)
+p.finalize(sys.argv[5])

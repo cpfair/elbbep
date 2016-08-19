@@ -8,3 +8,6 @@ glyphs-*.json
 text_shaper_lut.*
 *.pfo
 *.auto.*
+cache/
+*.pbl
+*.pbz

@@ -49,5 +49,5 @@ if len(sys.argv) == 4:
         if "FALLBACK_INTERNAL" in name:
             continue
         src = glob.glob(os.path.join(sys.argv[2], "%03d*" % key))[0]
-        dest = os.path.join(sys.argv[3], "%d_%s.pfo" % (key, name.replace("RESOURCE_ID_", "")))
+        dest = os.path.join(sys.argv[3], "%03d_%s.pfo" % (key, name.replace("RESOURCE_ID_", "")))
         shutil.copyfile(src, dest)

@@ -104,7 +104,8 @@ TEMPLATES = {
 
 def compose_font(input_pfo_path, output_pfo_path):
     global shaper_result
-    input_split = input_pfo_path.split(".")[0].split("_")
+    input_pfo_name = os.path.basename(input_pfo_path)
+    input_split = input_pfo_name.split(".")[0].split("_")
     size = input_split[-1]
     if len(input_split) > 3:
         size = input_split[-2]
@@ -119,7 +120,7 @@ def compose_font(input_pfo_path, output_pfo_path):
         size = int(size)
 
     # Blegh.
-    if "SERIF" in input_pfo_path:
+    if "SERIF" in input_pfo_name:
         variant += "_SERIF"
 
     try:
@@ -127,6 +128,17 @@ def compose_font(input_pfo_path, output_pfo_path):
     except KeyError:
         print("No template for %s!" % os.path.basename(input_pfo_path))
         return
+
+    # Check the original PFO to see if we need to generate compressed PFOs.
+    # The merge tool can't fix this afterwards.
+    compressed = False
+    with open(input_pfo_path, "rb") as input_pfo_fd:
+        pfo_ver = ord(input_pfo_fd.read(1))
+        if pfo_ver == 3:
+            FEATURE_RLE4 = 0x02
+            input_pfo_fd.seek(9)
+            features = ord(input_pfo_fd.read(1))
+            compressed = features & FEATURE_RLE4
 
     merge_params = [input_pfo_path]
     tempfiles = []
@@ -137,12 +149,15 @@ def compose_font(input_pfo_path, output_pfo_path):
 
         fontgen_params = [
             "python",
-            os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "pebble-sdk", "fontgen.py"),
+            os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "pebblesdk", "fontgen.py"),
             "pfo",
             str(member.size),
             member.ttf_path,
             pfo_tf.name
         ]
+
+        if compressed:
+            fontgen_params += ["--compress", "RLE4"]
 
         if member.size != size:
             fontgen_params += ["--shift", "%d,%d" % (0, size - member.size)]
@@ -180,7 +195,11 @@ def compose_font(input_pfo_path, output_pfo_path):
             fontgen_params += ["--list", cpt_list_tf.name]
 
         fontgen_params += ["--zero-width-codept-list", zwc_tf.name]
-        subprocess.check_call(fontgen_params)
+        try:
+            subprocess.check_call(fontgen_params)
+        except subprocess.CalledProcessError:
+            print("Failed generating member for %s - it will not be output!" % input_pfo_name)
+            return
 
     merge_params.append(output_pfo_path)
     subprocess.check_call([

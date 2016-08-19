@@ -16,7 +16,7 @@ def font_read(pfo_path):
     pfo = open(pfo_path, "rb").read()
 
     pfo_ver = struct.unpack("<B", pfo[0])[0]
-    assert pfo_ver in (2, 3)
+    assert pfo_ver in (2, 3), "%s has unknown PFO version %d" % (pfo_path, pfo_ver)
     if pfo_ver == 2:
         HEADER_SIZE = 8
         pfo_ver, max_height, glyph_ct, wildcard, hashtable_sz, codept_sz = struct.unpack('<BBHHBB', pfo[:HEADER_SIZE])
