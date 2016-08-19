@@ -195,31 +195,41 @@ msgstr ""
 def patch_firmware(target_bin, sdk_dir, hw_rev):
     platform = hw_rev_platform_map[hw_rev]
     out_bin = target_bin.replace(".bin", ".patched.bin")
-    qemu_elf_path = os.path.join(sdk_dir, "sdk-core", "pebble", platform, "qemu", "%s_sdk_debug.elf" % platform)
-    qemu_bin_path = os.path.join(sdk_dir, "sdk-core", "pebble", platform, "qemu", "qemu_micro_flash.bin")
-    subprocess.check_call([
-        "python",
-        "patch.py",
-        platform,
-        target_bin,
-        qemu_elf_path,
-        qemu_bin_path,
-        out_bin])
+    if not os.path.exists(out_bin):
+        qemu_elf_path = os.path.join(sdk_dir, "sdk-core", "pebble", platform, "qemu", "%s_sdk_debug.elf" % platform)
+        qemu_bin_path = os.path.join(sdk_dir, "sdk-core", "pebble", platform, "qemu", "qemu_micro_flash.bin")
+        subprocess.check_call([
+            "python",
+            "patch.py",
+            platform,
+            target_bin,
+            qemu_elf_path,
+            qemu_bin_path,
+            out_bin])
     return out_bin
 
-def pack_firmware(fw_dir, new_bin, out_pbz_path):
+def tag_version(fw_ver, fw_bin):
+    ver_string_loc = fw_bin.index(fw_ver.encode("ascii"))
+    new_ver_string = fw_ver.encode("ascii") + b"-RTL"
+    res = fw_bin[:ver_string_loc] + new_ver_string + fw_bin[ver_string_loc + len(new_ver_string):]
+    return res
+
+def pack_firmware(fw_ver, fw_dir, new_bin_path, out_pbz_path):
     misc_fw_files = [
         "LICENSE.txt",
         "layouts.json.auto",
         "system_resources.pbpack"
     ]
 
+    if os.path.exists(out_pbz_path):
+        os.remove(out_pbz_path)
     manifest = json.load(open(os.path.join(fw_dir, "manifest.json")))
-    fw_data = open(new_bin, "r").read()
-    manifest["firmware"]["size"] = len(fw_data)
-    manifest["firmware"]["crc"] = crc32(fw_data)
+    fw_bin = open(new_bin_path, "r").read()
+    fw_bin = tag_version(fw_ver, fw_bin)
+    manifest["firmware"]["size"] = len(fw_bin)
+    manifest["firmware"]["crc"] = crc32(fw_bin)
     pbz_zf = zipfile.ZipFile(out_pbz_path, "w")
-    pbz_zf.writestr("tintin_fw.bin", fw_data)
+    pbz_zf.writestr("tintin_fw.bin", fw_bin)
     pbz_zf.writestr("manifest.json", json.dumps(manifest))
     for file in misc_fw_files:
         pbz_zf.write(os.path.join(fw_dir, file), file)
@@ -231,4 +241,4 @@ sdk_dir = download_sdk(fw_ver)
 new_resources_dir = generate_fonts(extract_fonts(fw_dir))
 generate_langpack(new_resources_dir, out_pbl_path)
 patched_bin = patch_firmware(os.path.join(fw_dir, "tintin_fw.bin"), sdk_dir, hw_rev)
-pack_firmware(fw_dir, patched_bin, out_pbz_path)
+pack_firmware(fw_ver, fw_dir, patched_bin, out_pbz_path)
