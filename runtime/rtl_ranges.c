@@ -1,7 +1,7 @@
+#include "range.h"
 #include "rtl_ranges.h"
 #include "font_ranges.h"
 #include "text_shaper_lut.h"
-#define RANGE(cp, start, end) ((cp) >= (start) && (cp) < (end))
 
 bool is_rtl(uint16_t cp) {
   return RANGE(cp, 0x60E, 0x660) ||     // First part of Arabic block - up to numerals

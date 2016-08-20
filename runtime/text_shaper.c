@@ -16,6 +16,10 @@ typedef struct ShaperLUTEntry {
     uint16_t final_codept;
 } ShaperLUTEntry;
 
+const int LIG_REPLACEMENT_CODEPT_MASK = (1 << 15);
+// NB much of this file assumes we'll be shaping 2-byte runes to other 2-byte runes.
+const int RUNE_SIZE = 2;
+
 static const ShaperLUTEntry* find_lut_entry_by_codept(uint16_t codept) {
     if (codept < 0x600 && codept > 0x6ff) {
         return NULL;
@@ -29,8 +33,20 @@ static const ShaperLUTEntry* find_lut_entry_by_codept(uint16_t codept) {
     return NULL;
 }
 
+static uint16_t find_base_codept_by_shaped(uint16_t codept) {
+    const ShaperLUTEntry * shaper_lut = (ShaperLUTEntry*)ARABIC_SHAPER_LUT;
+    for (int i = 0; i < ARABIC_SHAPER_LUT_SIZE / sizeof(ShaperLUTEntry); ++i) {
+        if (shaper_lut[i].isolated_codept == codept ||
+            shaper_lut[i].initial_codept == codept ||
+            shaper_lut[i].medial_codept == codept ||
+            shaper_lut[i].final_codept == codept) {
+            return shaper_lut[i].true_codept;
+        }
+    }
+    return 0;
+}
+
 static uint16_t find_ligature_by_codepts(uint16_t* pattern, size_t pattern_size) {
-    const int REPLACEMENT_CODEPT_MASK = (1 << 15);
     bool searching = true;
     size_t pattern_idx = 0;
     const uint16_t * ligature_lut = (uint16_t*)ARABIC_LIGATURE_LUT;
@@ -40,17 +56,37 @@ static uint16_t find_ligature_by_codepts(uint16_t* pattern, size_t pattern_size)
                 pattern_idx++;
             } else {
                 // Is this the replacement codept?
-                if (ligature_lut[i] & REPLACEMENT_CODEPT_MASK) {
-                    return ligature_lut[i] & ~REPLACEMENT_CODEPT_MASK;
+                if (ligature_lut[i] & LIG_REPLACEMENT_CODEPT_MASK) {
+                    return ligature_lut[i] & ~LIG_REPLACEMENT_CODEPT_MASK;
                 }
                 searching = false;
                 pattern_idx = 0;
             }
-        } else if (ligature_lut[i] & REPLACEMENT_CODEPT_MASK) {
+        } else if (ligature_lut[i] & LIG_REPLACEMENT_CODEPT_MASK) {
             searching = true;
         }
     }
     return 0;
+}
+
+static bool expand_ligature(uint16_t codept, char* ptr) {
+    const uint16_t * ligature_lut = (uint16_t*)ARABIC_LIGATURE_LUT;
+    int last_pattern_start = 0;
+    for (int i = 0; i < ARABIC_LIGATURE_LUT_SIZE / sizeof(uint16_t); ++i) {
+        if (ligature_lut[i] & LIG_REPLACEMENT_CODEPT_MASK) {
+            if ((ligature_lut[i] & ~LIG_REPLACEMENT_CODEPT_MASK) == codept) {
+                // Write out the original pattern that produced this ligature.
+                ptr -= RUNE_SIZE * (i - last_pattern_start - 1);
+                while (!(ligature_lut[last_pattern_start] & LIG_REPLACEMENT_CODEPT_MASK)) {
+                    write_utf8(ptr, ligature_lut[last_pattern_start++]);
+                    ptr += RUNE_SIZE;
+                }
+                return true;
+            }
+            last_pattern_start = i + 1;
+        }
+    }
+    return false;
 }
 
 bool shape_text(char* text) {
@@ -133,6 +169,21 @@ bool shape_text(char* text) {
     return did_shape;
 }
 
-void unshape_text(char* text) {
-
+void unshape_text(char* iter) {
+    while (*iter) {
+        char* iter_pre = iter;
+        uint16_t codept = read_utf8(&iter);
+        if (!ARABIC_SHAPER_RANGE(codept)) {
+            continue;
+        }
+        uint16_t old_codept = find_base_codept_by_shaped(codept);
+        if (old_codept) {
+            if (expand_ligature(old_codept, iter_pre)) {
+                // Ligature was expanded - nothing left to do.
+            } else {
+                // Write back the original codept.
+                write_utf8(iter_pre, old_codept);
+            }
+        }
+    }
 }
