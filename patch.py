@@ -11,7 +11,14 @@ p = Patcher(
     emu_elf_path=sys.argv[3],
     emu_bin_path=sys.argv[4],
     patch_c_path="runtime/patch.c",
-    other_c_paths=["runtime/text_shaper.c", "runtime/text_shaper_lut.c", "runtime/utf8.c", "runtime/rtl.c"]
+    other_c_paths=[
+        "runtime/text_shaper.c",
+        "runtime/text_shaper_lut.c",
+        "runtime/utf8.c",
+        "runtime/rtl.c",
+        "runtime/rtl_ranges.c",
+        "runtime/font_ranges.c"
+    ]
 )
 
 gdt_match = p.match_symbol("graphics_draw_text")

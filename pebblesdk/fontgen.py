@@ -80,6 +80,8 @@ ELLIPSIS_CODEPOINT = 0x2026
 FEATURE_OFFSET_16 = 0x01
 FEATURE_RLE4 = 0x02
 
+ZERO_WIDTH_GLYPH_INDEX = "zwg"
+
 
 HASH_TABLE_SIZE = 255
 OFFSET_TABLE_MAX_SIZE = 128
@@ -126,7 +128,7 @@ class Font:
         self.offset_size_bytes = 4
         self.features = 0
         self.codepoints_map = {}
-        self.zero_width_codepts = None
+        self.zero_width_codepts = []
         self.shift = (0, 0)
         self.threshold = 127
 
@@ -299,7 +301,7 @@ class Font:
 
 
     def glyph_bits(self, gindex):
-        if gindex in self.zero_width_codepts:
+        if gindex ==  ZERO_WIDTH_GLYPH_INDEX:
             return struct.pack(self.glyph_header, 0, 0, 0, 0, 0)
         flags = (freetype.FT_LOAD_RENDER if self.legacy else
             freetype.FT_LOAD_RENDER | freetype.FT_LOAD_MONOCHROME | freetype.FT_LOAD_TARGET_MONO)
@@ -437,11 +439,10 @@ class Font:
         glyph_entries.append((WILDCARD_CODEPOINT, offset))
 
         # add zero-width codept(s), if desired
-        if self.zero_width_codepts:
-            offset, next_offset, glyph_indices_lookup = add_glyph(self.zero_width_codepts[0], next_offset, self.zero_width_codepts[0],
+        for codept in self.zero_width_codepts:
+            offset, next_offset, glyph_indices_lookup = add_glyph(codept, next_offset, ZERO_WIDTH_GLYPH_INDEX,
                                                                   glyph_indices_lookup)
-            for codept in self.zero_width_codepts:
-                glyph_entries.append((codept, offset))
+            glyph_entries.append((codept, offset))
 
         if not self.codepoints_map:
             while gindex:

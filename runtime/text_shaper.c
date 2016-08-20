@@ -1,5 +1,6 @@
 #include "text_shaper.h"
 #include "text_shaper_lut.h"
+#include "font_ranges.h"
 #include "utf8.h"
 
 typedef enum ShaperState {
@@ -99,9 +100,11 @@ bool shape_text(char* text) {
         if (ligature_span) {
             ligature_span--;
             write_utf8(this_codept_ptr, ZERO_WIDTH_CODEPT);
+        } else if (is_zero_width(codept_buffer[THIS_CODEPT])) {
+            // Don't do anything rash.
         } else if (this_lut_entry) {
             did_shape = true;
-            if (!next_lut_entry || this_lut_entry->medial_codept == this_lut_entry->final_codept) {
+            if ((!next_lut_entry && !is_zero_width(codept_buffer[NEXT_CODEPT])) || this_lut_entry->medial_codept == this_lut_entry->final_codept) {
                 // Final, or isolated form.
                 if (state == STATE_INITIAL) {
                     write_utf8(this_codept_ptr, this_lut_entry->isolated_codept);

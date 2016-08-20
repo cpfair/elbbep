@@ -19,11 +19,11 @@ def font_read(pfo_path):
     assert pfo_ver in (2, 3), "%s has unknown PFO version %d" % (pfo_path, pfo_ver)
     if pfo_ver == 2:
         HEADER_SIZE = 8
-        pfo_ver, max_height, glyph_ct, wildcard, hashtable_sz, codept_sz = struct.unpack('<BBHHBB', pfo[:HEADER_SIZE])
+        pfo_ver, max_height, codept_ct, wildcard, hashtable_sz, codept_sz = struct.unpack('<BBHHBB', pfo[:HEADER_SIZE])
         compressed = False
     else:
         HEADER_SIZE = 10
-        pfo_ver, max_height, glyph_ct, wildcard, hashtable_sz, codept_sz, s_size, features = struct.unpack('<BBHHBBBB', pfo[:HEADER_SIZE])
+        pfo_ver, max_height, codept_ct, wildcard, hashtable_sz, codept_sz, s_size, features = struct.unpack('<BBHHBBBB', pfo[:HEADER_SIZE])
         if not features & 1:
             HASHTABLE_CHAIN_ITEM = struct.Struct("<HL")
         compressed = features & 2
@@ -31,7 +31,7 @@ def font_read(pfo_path):
 
     glyphs = {}
 
-    glyphs_base = HEADER_SIZE + HASHTABLE_DIRECTORY_SIZE * HASHTABLE_DIRECTORY_ITEM_SIZE + glyph_ct * HASHTABLE_CHAIN_ITEM.size
+    glyphs_base = HEADER_SIZE + HASHTABLE_DIRECTORY_SIZE * HASHTABLE_DIRECTORY_ITEM_SIZE + codept_ct * HASHTABLE_CHAIN_ITEM.size
 
     for directory_index in range(HASHTABLE_DIRECTORY_SIZE):
         dir_addr = HEADER_SIZE + directory_index * HASHTABLE_DIRECTORY_ITEM_SIZE
@@ -61,7 +61,7 @@ def font_write(font, pfo_path):
         features |= 1
     if font.compressed:
         features |= 2
-    header = struct.pack('<BBHHBBBB', 3, font.max_height, len(font.glyphs), font.wildcard, HASHTABLE_DIRECTORY_SIZE, 2, 10, features)
+    header = struct.pack('<BBHHBBBB', 3, font.max_height, sum((len(x.codepoints) for x in font.glyphs.values())), font.wildcard, HASHTABLE_DIRECTORY_SIZE, 2, 10, features)
 
     # Generate hashtable chain lists
     glyph_data = "\0\0\0\0"

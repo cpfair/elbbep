@@ -153,7 +153,8 @@ def generate_fonts(original_fonts_path):
             "python",
             "fonts/compose.py",
             original_fonts_path,
-            new_fonts_path])
+            new_fonts_path,
+            "runtime/"])
     return new_fonts_path
 
 def generate_langpack(fonts_dir, out_pbl_path):

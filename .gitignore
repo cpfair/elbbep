@@ -6,6 +6,7 @@
 glyphs-*.json
 *.pyc
 text_shaper_lut.*
+font_ranges.*
 *.pfo
 *.auto.*
 cache/
