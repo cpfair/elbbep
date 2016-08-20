@@ -27,6 +27,13 @@ print("GDT %x - %x" % (gdt_match.start, gdt_end_match.start))
 
 p.wrap("graphics_draw_text_patch", gdt_match)
 
+p.wrap("graphics_text_layout_get_content_size_patch",
+       p.match_symbol("graphics_text_layout_get_content_size"),
+       "GSize")
+p.wrap("graphics_text_layout_get_content_size_with_attributes_patch",
+       p.match_symbol("graphics_text_layout_get_content_size_with_attributes"),
+       "GSize")
+
 # Find the layout driver function - it's the last call graphics_draw_text makes.
 layout_driver_match = p.match(r"bl\s+0x(?P<fnc>[0-9a-f]+)$", start=gdt_match.start, end=gdt_end_match.end, n=-1)
 layout_driver_addr = int(layout_driver_match.groups["fnc"], 16)

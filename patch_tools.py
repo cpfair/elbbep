@@ -5,7 +5,7 @@ from collections import namedtuple
 
 PatchOverwrite = namedtuple("PatchOverwrite", "address content")
 PatchBranchOffset = namedtuple("PatchBranchOffset", "address symbol link")
-PatchAppendAsm = namedtuple("PatchAppendAsm", "symbol content")
+PatchAppendAsm = namedtuple("PatchAppendAsm", "symbol content return_type")
 PatchDefineSymbol = namedtuple("PatchDefineSymbol", "name address")
 PatchDefineMacro = namedtuple("PatchDefineMacro", "name value")
 MatchResult = namedtuple("MatchResult", "start end markers groups")
@@ -221,10 +221,12 @@ class Patcher:
         # Return to original site
         proxy_asm += "B %s__return\n" % dest_symbol
 
+        print("Inject begin %x" % (self.MICROCODE_OFFSET + jmp_insert_addr))
+        print("Inject return %x" % (self.MICROCODE_OFFSET + end_patch_addr))
         self._q(PatchDefineSymbol("%s__return" % dest_symbol, self.MICROCODE_OFFSET + end_patch_addr))
-        self._q(PatchAppendAsm("%s__proxy" % dest_symbol, proxy_asm))
+        self._q(PatchAppendAsm("%s__proxy" % dest_symbol, proxy_asm, "void"))
 
-    def wrap(self, dest_symbol, dest_match):
+    def wrap(self, dest_symbol, dest_match, return_type="void"):
         # Patch insertion points must
         # - occur at the beginning of a procedure, before the stack has been modified.
         #   (though maybe not if one doesn't need args from the stack, i.e. r0-r3 are fine).
@@ -248,8 +250,10 @@ class Patcher:
 
         # Return to original site
         passthru_asm += "B %s__return\n" % dest_symbol
+        print("Wrap begin %x" % (self.MICROCODE_OFFSET + jmp_insert_addr))
+        print("Wrap return %x" % (self.MICROCODE_OFFSET + end_patch_addr))
         self._q(PatchDefineSymbol("%s__return" % dest_symbol, self.MICROCODE_OFFSET + end_patch_addr))
-        self._q(PatchAppendAsm("%s__passthru" % dest_symbol, passthru_asm))
+        self._q(PatchAppendAsm("%s__passthru" % dest_symbol, passthru_asm, return_type))
 
     def define_function(self, dest_symbol, target_addr):
         self._q(PatchDefineSymbol(dest_symbol, target_addr))
@@ -266,11 +270,11 @@ class Patcher:
         patch_s_composed = ".syntax unified\n.thumb\n"
         for op in self.op_queue:
             if type(op) is PatchAppendAsm:
-                patch_h_composed += "void* %s ();\n" % op.symbol
+                patch_h_composed += "%s %s ();\n" % (op.return_type, op.symbol)
                 patch_s_composed += ".thumb_func\n.global %s\n%s:\n\t" % (op.symbol, op.symbol)
                 patch_s_composed += op.content.replace("\n", "\n\t") + "\n"
 
-        cflags = ["-std=c99", "-mcpu=cortex-m3", "-mthumb", "-g", "-fPIC", "-fPIE", "-nostdlib", "-Wl,-Tpatch.comp.ld", "-Wl,-Map,patch.comp.map,--emit-relocs", "-D_TIME_H_", "-I.", "-Iruntime", "-O0"]
+        cflags = ["-std=c99", "-mcpu=cortex-m3", "-mthumb", "-g", "-fPIC", "-fPIE", "-nostdlib", "-Wl,-Tpatch.comp.ld", "-Wl,-Map,patch.comp.map,--emit-relocs", "-D_TIME_H_", "-I.", "-Iruntime", "-Os", "-ffunction-sections", "-fdata-sections"]
 
         # Define new symbols explicitly.
         for op in self.op_queue:
@@ -305,6 +309,7 @@ class Patcher:
             if type(op) is PatchBranchOffset:
                 # Here we're inserting a wide branch
                 final_addr = symtab[op.symbol] - self.MICROCODE_OFFSET
+                print("Inserting jump from 0x%x to 0x%x delta 0x%x" % (op.address, final_addr, final_addr - op.address))
                 offset = (final_addr - op.address - 4) >> 1
                 instr = 0b11110000000000001001000000000000
                 s = 0 if offset > 0 else 1
