@@ -104,7 +104,17 @@ bool shape_text(char* text) {
             // Don't do anything rash.
         } else if (this_lut_entry) {
             did_shape = true;
-            if ((!next_lut_entry && !is_zero_width(codept_buffer[NEXT_CODEPT])) || this_lut_entry->medial_codept == this_lut_entry->final_codept) {
+            if (
+                // If we're about to change into an unshapable span, finish up.
+                (!next_lut_entry && !is_zero_width(codept_buffer[NEXT_CODEPT])) ||
+                // Or, if this character has no medial form.
+                (
+                    // Indicated by identical medial and final forms.
+                    this_lut_entry->medial_codept == this_lut_entry->final_codept &&
+                    // Contraindication for stuff like kashida.
+                    this_lut_entry->isolated_codept != this_lut_entry->final_codept
+                )
+               ) {
                 // Final, or isolated form.
                 if (state == STATE_INITIAL) {
                     write_utf8(this_codept_ptr, this_lut_entry->isolated_codept);

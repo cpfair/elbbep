@@ -22,9 +22,9 @@ codegen_path = sys.argv[3]
 
 scratch_codepoint_ranges = ((0x700, 0x750), (0x780, 0x7FF + 1))
 
-shaped_alphabet = "غظضذخثتشرقصفعسنملكيطحزوهدجبا"
 kashida = "ـ"
-supplemental_alphabet = kashida + "١٢٣٤٥٦٧٨٩٠؟؛،"
+shaped_alphabet = "غظضذخثتشرقصفعسنملكيطحزوهدجبا" + kashida
+supplemental_alphabet = "١٢٣٤٥٦٧٨٩٠؟؛،"
 ligatures = ["لا"]
 
 missing_glyph = None
@@ -52,10 +52,13 @@ def generate_forms(alphabet, ligatures):
         ch_comps = [ch, ch + kashida, kashida + ch + kashida, kashida + ch]
         ch_forms = []
         for ch_comp in ch_comps:
-            shaped = shape_text(ch_comp)
-            target_glyphs = [x for x in shaped if x["g"] != kashida_glyph]
-            assert len(target_glyphs) == 1
-            target_glyph = target_glyphs[0]["g"]
+            if ch == kashida:
+                target_glyph = kashida_glyph
+            else:
+                shaped = shape_text(ch_comp)
+                target_glyphs = [x for x in shaped if x["g"] != kashida_glyph]
+                assert len(target_glyphs) == 1
+                target_glyph = target_glyphs[0]["g"]
             ch_forms.append(target_glyph)
         forms[ch] = ch_forms
     return forms
