@@ -18,15 +18,18 @@ from pebblesdk.stm32_crc import crc32
 
 MAX_RESOURCES = 512
 
-if len(sys.argv) < 4:
-    print("generator.py hw_rev out.pbz langpack_out.pbl")
+if len(sys.argv) < 3:
+    print("generator.py hw_rev out.pbz [langpack_out.pbl]")
     sys.exit(0)
 
 cache_root = "cache"
 firmware_series = "v3.8" # IDK.
 hw_rev = sys.argv[1]
 out_pbz_path = sys.argv[2]
-out_pbl_path = sys.argv[3]
+if len(sys.argv) == 4:
+    out_pbl_path = sys.argv[3]
+else:
+    out_pbl_path = None
 
 hw_rev_platform_map = {
     "ev2_4": "aplite",
@@ -198,7 +201,6 @@ def patch_firmware(target_bin, sdk_dir, hw_rev):
     out_bin = target_bin.replace(".bin", ".patched.bin")
     if not os.path.exists(out_bin):
         libpebble_a_path = os.path.join(sdk_dir, "sdk-core", "pebble", platform, "lib", "libpebble.a")
-        qemu_bin_path = os.path.join(sdk_dir, "sdk-core", "pebble", platform, "qemu", "qemu_micro_flash.bin")
         subprocess.check_call([
             "python",
             "patch.py",
@@ -238,7 +240,8 @@ def pack_firmware(fw_ver, fw_dir, new_bin_path, out_pbz_path):
 fw_ver, orig_pbz_path = download_firmware(firmware_series, hw_rev)
 fw_dir = unpack_fw(fw_ver, hw_rev, orig_pbz_path)
 sdk_dir = download_sdk(fw_ver)
-new_resources_dir = generate_fonts(extract_fonts(fw_dir))
-generate_langpack(new_resources_dir, out_pbl_path)
+if out_pbl_path:
+    new_resources_dir = generate_fonts(extract_fonts(fw_dir))
+    generate_langpack(new_resources_dir, out_pbl_path)
 patched_bin = patch_firmware(os.path.join(fw_dir, "tintin_fw.bin"), sdk_dir, hw_rev)
 pack_firmware(fw_ver, fw_dir, patched_bin, out_pbz_path)
