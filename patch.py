@@ -1,15 +1,14 @@
 import sys
 from patch_tools import Patcher, CallsiteValue, CallsiteSP
 
-if len(sys.argv) < 6:
-    print("patch.py platform tintin_fw.bin qemu_bin.elf qemu_bin.bin tintin_fw.out.bin")
+if len(sys.argv) < 5:
+    print("patch.py platform tintin_fw.bin libpebble.a tintin_fw.out.bin")
 
 platform = sys.argv[1]
 
 p = Patcher(
     target_bin_path=sys.argv[2],
-    emu_elf_path=sys.argv[3],
-    emu_bin_path=sys.argv[4],
+    libpebble_a_path=sys.argv[3],
     patch_c_path="runtime/patch.c",
     other_c_paths=[
         "runtime/text_shaper.c",
@@ -96,4 +95,4 @@ p.define_macro("RENDERHDLR_ARG3_SP_OFF", render_handler_call_match.groups["arg3_
 p.inject("render_wrap", render_handler_call_match, supplant=True,
     args=[CallsiteValue(register=0), CallsiteValue(register=1), more_text_reg_value, hdlr_reg_value, CallsiteSP()])
 
-p.finalize(sys.argv[5])
+p.finalize(sys.argv[4])

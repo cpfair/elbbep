@@ -15,7 +15,7 @@ CallsiteValue.__new__.__defaults__ = (None,) * len(CallsiteValue._fields)
 CallsiteSP = namedtuple("CallsiteSP", "")
 
 class Patcher:
-    def __init__(self, target_bin_path, emu_elf_path, emu_bin_path, patch_c_path, other_c_paths):
+    def __init__(self, target_bin_path, libpebble_a_path, patch_c_path, other_c_paths):
         self.target_bin_path = target_bin_path
         self.patch_c_path = patch_c_path
         self.patch_c = open(patch_c_path, "r").read()
@@ -29,13 +29,7 @@ class Patcher:
         for addr_match in re.finditer("$\s+([a-f0-9]+):", self.target_deasm, re.MULTILINE):
             self.target_deasm_index[int(addr_match.group(1), 16)] = addr_match.start()
 
-        symtab_txt = subprocess.check_output(["arm-none-eabi-nm", emu_elf_path])
-        self.emu_symtab = {
-            m.group("name"): int(m.group("addr"), 16) for m in re.finditer(r"(?P<addr>[a-f0-9]+)\s+\w+\s+(?P<name>\w+)$", symtab_txt, re.MULTILINE)
-        }
-        self.emu_bin = open(emu_bin_path, "rb").read()
-
-        self.target = "emulator" if emu_bin_path == self.target_bin_path else "hardware"
+        self.target = "emulator" if "qemu" in self.target_bin_path else "hardware"
         if self.target == "hardware":
             # Bootloader is 16k
             self.MICROCODE_OFFSET = 0x8000000 + 0x4000
@@ -48,10 +42,40 @@ class Patcher:
             # The emulator bootloader (or whatever) is baked into the main image.
             self.MICROCODE_OFFSET = 0x8000000
             # The emulator doesn't care.
-            self.trailing_bin_content = ""
-        self.EMU_MICROCODE_OFFSET = 0x8000000
+            self.trailing_bin_content = b""
+
+        self._build_symbol_table(libpebble_a_path)
 
         self.op_queue = []
+
+    def _build_symbol_table(self, libpebble_a_path):
+        libpebble_deasm = subprocess.check_output(["arm-none-eabi-objdump", "-d", libpebble_a_path])
+        # All pebble SDK calls are indirected via a jump table baked into the firmware.
+        # We can use this jump table to build a symbol table for the stripped firmware binary.
+        # One way to figure out where the table is is to check pbl_table_addr from an app.
+        # But that requires work - instead, we match against a pattern of obsoleted functions, which we know will be 0 in the table.
+        self.symtab = {}
+
+        func_offset_map = {}
+        for sdk_func in re.finditer(r"b\.w.+<(?P<func_name>[^>]+)>.*\n.+\.word\s+(?P<idx>0x[a-f0-9]{8})", libpebble_deasm):
+            func_offset_map[sdk_func.group("func_name")] = int(sdk_func.group("idx"), 16)
+
+        # REGEX abuse.
+        pattern = b""
+        last_idx = 0
+        for idx in sorted(func_offset_map.values()):
+            pattern += b"\x00" * max((idx - last_idx - 4), 0)
+            pattern += b"...\x08"
+            last_idx = idx
+
+        jump_tbl_match_base = next(re.finditer(pattern, self.target_bin, re.DOTALL)).start()
+
+        for func, offset in func_offset_map.items():
+            ptr_offset = jump_tbl_match_base + offset
+            abs_addr = struct.unpack("<I", self.target_bin[ptr_offset:ptr_offset + 4])[0]
+            assert abs_addr & 1 # Double check that it's actually a THUMB function ptr.
+            file_rel_addr = (abs_addr & ~1) - self.MICROCODE_OFFSET
+            self.symtab[func] = file_rel_addr
 
     def _addr_step(self, addr, step):
         addr += step
@@ -127,20 +151,7 @@ class Patcher:
         )
 
     def match_symbol(self, symbol):
-        # We incrementally search both the emulator binary (where we have a symbol table) and the target (where we don't),
-        # continuing until there is exactly 1 match in the target for some shared prefix.
-        prefix_length = 4
-        prefix_length_step = 2
-        emu_rel_addr = self.emu_symtab[symbol] - self.EMU_MICROCODE_OFFSET
-        while True:
-            prefix = self.emu_bin[emu_rel_addr:emu_rel_addr + prefix_length]
-            ct = self.target_bin.count(prefix)
-            assert ct > 0, "Could not find unambiguous prefix match for %s" % symbol
-            if ct == 1:
-                break
-            prefix_length += prefix_length_step
-
-        addr = self.target_bin.index(prefix)
+        addr = self.symtab[symbol]
         markers = {"TARGET": addr, "JUMP": addr}
         # Figure out if we're about to break a 32-bit instruction
         if " %x:" % (addr + 4) not in self.target_deasm:

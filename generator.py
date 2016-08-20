@@ -197,15 +197,14 @@ def patch_firmware(target_bin, sdk_dir, hw_rev):
     platform = hw_rev_platform_map[hw_rev]
     out_bin = target_bin.replace(".bin", ".patched.bin")
     if not os.path.exists(out_bin):
-        qemu_elf_path = os.path.join(sdk_dir, "sdk-core", "pebble", platform, "qemu", "%s_sdk_debug.elf" % platform)
+        libpebble_a_path = os.path.join(sdk_dir, "sdk-core", "pebble", platform, "lib", "libpebble.a")
         qemu_bin_path = os.path.join(sdk_dir, "sdk-core", "pebble", platform, "qemu", "qemu_micro_flash.bin")
         subprocess.check_call([
             "python",
             "patch.py",
             platform,
             target_bin,
-            qemu_elf_path,
-            qemu_bin_path,
+            libpebble_a_path,
             out_bin])
     return out_bin
 
