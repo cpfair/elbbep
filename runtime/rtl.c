@@ -51,10 +51,8 @@ static void apply_swaps(char* ch) {
     }
 }
 
-void rtl_apply(char* line_start, char* line_end) {
-    if (!*line_start) {
-        return;
-    }
+bool rtl_apply(char* line_start, char* line_end) {
+    bool did_transform = false;
     // Run through the line, reversing spans of RTL characters, and any neutral characters contained.
     // Based on a highly scientific trial-and-error investigation, neutral characters on the boundary of RTL/LTR switches remain in-place.
     // Similar investigative techniques were used to illuminate the behaviour of "weak" LTR characters, i.e. numerals.
@@ -99,6 +97,7 @@ void rtl_apply(char* line_start, char* line_end) {
             apply_swaps(this_codept_ptr);
         } else if (!rtl && rtl_span_start) {
             // Finished an RTL span - reverse it.
+            did_transform = true;
             reverse_span(rtl_span_start, this_codept_ptr);
             rtl_span_start = NULL;
             weak_ltr_span_start = NULL;
@@ -108,6 +107,8 @@ void rtl_apply(char* line_start, char* line_end) {
         reverse_span(weak_ltr_span_start, iter);
     }
     if (rtl_span_start) {
+        did_transform = true;
         reverse_span(rtl_span_start, iter);
     }
+    return did_transform;
 }

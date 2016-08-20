@@ -58,10 +58,6 @@ bool shape_text(char* text) {
     bool did_shape = false;
     char* ptr = text;
 
-    if (!*ptr) {
-        return false;
-    }
-
     const int NEXT_CODEPT = 1;
     const int THIS_CODEPT = 0;
 

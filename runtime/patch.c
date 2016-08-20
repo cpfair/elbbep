@@ -1,8 +1,10 @@
 #include "pebble.h"
 #include "patch.auto.h"
-#include "text_shaper.h"
-#include "rtl.h"
 #include "platform.h"
+#include "rtl.h"
+#include "rtl_ranges.h"
+#include "text_shaper.h"
+#include "utf8.h"
 
 void *memset(void* dest, int val, size_t size) {
     while (size--) {
@@ -12,12 +14,29 @@ void *memset(void* dest, int val, size_t size) {
 }
 
 void graphics_draw_text_patch(GContext* ctx, char* text, GFont const font, const GRect box, const GTextOverflowMode overflow_mode, GTextAlignment alignment, GTextAttributes* text_attributes) {
-    bool shaped_text = false;
-    if (text >= (char*)SRAM_BASE) {
-        shaped_text = shape_text(text);
+    bool did_shape_text = false;
+    if (text >= (char*)SRAM_BASE && *text) {
+        did_shape_text = shape_text(text);
+
+        // Mangle alignment to be kind of maybe proper.
+        // If the first opinionated character in the string is RTL, the alignment will be swapped.
+        if (alignment == GTextAlignmentLeft) {
+            char* ptr = text;
+            while (*ptr) {
+                uint16_t codept = read_utf8(&ptr);
+                if (is_neutral(codept) || is_weak_ltr(codept)) {
+                    continue;
+                } else if (is_rtl(codept)) {
+                    alignment = GTextAlignmentRight;
+                    break;
+                } else {
+                    break;
+                }
+            }
+        }
     }
     PASSTHRU(graphics_draw_text_patch, ctx, text, font, box, overflow_mode, alignment, text_attributes);
-    if (shaped_text) {
+    if (did_shape_text) {
         unshape_text(text);
     }
 }
@@ -27,13 +46,14 @@ void render_wrap(void* gcontext, char** layout, bool more_text, RenderHandler ha
     // First, apply RTL transforms.
     char* line_start, *line_end, *line_end_1, *line_end_2;
     line_start = *layout;
-    if (line_start >= (char*)SRAM_BASE) {
+    bool did_rtl_transform = false;
+    if (line_start >= (char*)SRAM_BASE && *line_start) {
         line_end_1 = *(char**)(callsite_sp + LINEEND_SP_OFF);
         line_end_2 = *(char**)(callsite_sp + LINEEND_SP_OFF + 4);
         line_end = more_text ? line_end_1 : line_end_2;
         while (line_end > line_start && *(line_end - 1) == ' ') line_end--;
         while (*line_start == ' ') line_start++;
-        rtl_apply(line_start, line_end);
+        did_rtl_transform = rtl_apply(line_start, line_end);
     }
 
     // Call through to actual render handler.
@@ -41,7 +61,7 @@ void render_wrap(void* gcontext, char** layout, bool more_text, RenderHandler ha
     handler(gcontext, layout, mystery_argument);
 
     // If we applied the RTL operations once, do them again to undo the changes.
-    if (line_start >= (char*)SRAM_BASE) {
+    if (did_rtl_transform) {
         rtl_apply(line_start, line_end);
     }
 }
