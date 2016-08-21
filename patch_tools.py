@@ -15,7 +15,8 @@ CallsiteValue.__new__.__defaults__ = (None,) * len(CallsiteValue._fields)
 CallsiteSP = namedtuple("CallsiteSP", "")
 
 class Patcher:
-    def __init__(self, target_bin_path, libpebble_a_path, patch_c_path, other_c_paths):
+    def __init__(self, platform, target_bin_path, libpebble_a_path, patch_c_path, other_c_paths):
+        self.platform = platform
         self.target_bin_path = target_bin_path
         self.patch_c_path = patch_c_path
         self.patch_c = open(patch_c_path, "r").read()
@@ -32,7 +33,7 @@ class Patcher:
         self.target = "emulator" if "qemu" in self.target_bin_path else "hardware"
         if self.target == "hardware":
             # Bootloader is 16k
-            self.MICROCODE_OFFSET = 0x8000000 + 0x4000
+            self.BOOTLOADER_SIZE = 0x4000
             # The firmware has a trailing footer with a GNU build ID tag,
             # plus a struct that the phone app uses to reject bad firmware with a nondescript error.
             # This struct seems to be 47 bytes long, and must be present at the end of the image.
@@ -40,9 +41,15 @@ class Patcher:
             self.trailing_bin_content = self.target_bin[-47:]
         elif self.target == "emulator":
             # The emulator bootloader (or whatever) is baked into the main image.
-            self.MICROCODE_OFFSET = 0x8000000
+            self.BOOTLOADER_SIZE = 0
             # The emulator doesn't care.
             self.trailing_bin_content = b""
+        self.MICROCODE_OFFSET = 0x8000000 + self.BOOTLOADER_SIZE
+        self.MAX_IMAGE_SIZE = {
+            "aplite": 1024 * 512 - self.BOOTLOADER_SIZE,
+            "basalt": 1024 * 1024 - self.BOOTLOADER_SIZE,
+            "chalk": 1024 * 1024 - self.BOOTLOADER_SIZE
+        }[platform]
 
         self._build_symbol_table(libpebble_a_path)
 
@@ -342,5 +349,7 @@ class Patcher:
             self.target_bin += "\0"
         self.target_bin += open("patch.comp.bin", "rb").read()
         self.target_bin += self.trailing_bin_content
+        assert len(self.target_bin) <= self.MAX_IMAGE_SIZE, "Final image %d bytes too large :(" % (len(self.target_bin) - self.MAX_IMAGE_SIZE)
+
         open(destination_bin_path, "wb").write(self.target_bin)
         open("final.bin", "wb").write(self.target_bin)

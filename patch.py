@@ -7,6 +7,7 @@ if len(sys.argv) < 5:
 platform = sys.argv[1]
 
 p = Patcher(
+    platform=platform,
     target_bin_path=sys.argv[2],
     libpebble_a_path=sys.argv[3],
     patch_c_path="runtime/patch.c",

@@ -51,7 +51,7 @@ def download_firmware(series, hw_rev):
     fw_manifest = requests.get("http://pebblefw.s3.amazonaws.com/pebble/%s/release-%s/latest.json" % (hw_rev, series)).json()
     ver = fw_manifest["normal"]["friendlyVersion"]
     url = fw_manifest["normal"]["url"]
-    pbz_path = cache_path("stock-firmware", "%s-%s.pbz" % (hw_rev, ver))
+    pbz_path = cache_path("stock-firmware", "%s-%s.pbz" % (ver, hw_rev))
     if not os.path.exists(pbz_path):
         open(pbz_path, "wb").write(requests.get(url).content)
     return ver, pbz_path
@@ -86,8 +86,8 @@ def unpack_fw(fw_ver, hw_rev, pbz_path):
 
 def unpack_resources(pbpack_path):
     unpacked_path, _, _ = pbpack_path.rpartition(".")
-    if not os.path.exists(unpacked_path) or True:
-        # os.mkdir(unpacked_path)
+    if not os.path.exists(unpacked_path):
+        os.mkdir(unpacked_path)
         pbpack_fd = open(pbpack_path, "rb")
         OFFSET_TABLE_OFFSET = 0xC
         n_resources = struct.unpack("<I", pbpack_fd.read(4))[0]
