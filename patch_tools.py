@@ -292,7 +292,7 @@ class Patcher:
                 patch_s_composed += ".thumb_func\n.global %s\n%s:\n\t" % (op.symbol, op.symbol)
                 patch_s_composed += op.content.replace("\n", "\n\t") + "\n"
 
-        cflags = ["-std=c99", "-mcpu=cortex-m3", "-mthumb", "-g", "-fPIC", "-fPIE", "-nostdlib", "-Wl,-Tpatch.comp.ld", "-Wl,-Map,patch.comp.map,--emit-relocs", "-D_TIME_H_", "-I.", "-Iruntime", "-Os", "-ffunction-sections", "-fdata-sections"]
+        cflags = ["-std=c99", "-mcpu=cortex-m3", "-mthumb", "-g", "-nostdlib", "-Wl,-Tpatch.comp.ld", "-Wl,-Map,patch.comp.map", "-D_TIME_H_", "-I.", "-Iruntime", "-Os", "-ffunction-sections", "-fdata-sections"]
 
         # Define new symbols explicitly.
         for op in self.op_queue:
