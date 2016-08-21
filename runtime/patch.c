@@ -8,13 +8,6 @@
 #include "text_shaper.h"
 #include "utf8.h"
 
-void *memset(void *dest, int val, size_t size) {
-  while (size--) {
-    *((char *)dest++) = (char)val;
-  }
-  return NULL; // Whatever.
-}
-
 GSize graphics_text_layout_get_content_size_with_attributes_patch(
     char *text, GFont const font, const GRect box,
     const GTextOverflowMode overflow_mode, GTextAlignment alignment,
