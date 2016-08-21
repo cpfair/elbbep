@@ -18,7 +18,7 @@ const int LIG_REPLACEMENT_CODEPT_MASK = (1 << 15);
 // runes.
 const int RUNE_SIZE = 2;
 
-static const ShaperLUTEntry *find_lut_entry_by_codept(uint16_t codept) {
+const ShaperLUTEntry *find_lut_entry_by_codept(uint16_t codept) {
   if (codept < 0x600 && codept > 0x6ff) {
     return NULL;
   }
