@@ -19,16 +19,12 @@ GSize graphics_text_layout_get_content_size_with_attributes_patch(
     char *text, GFont const font, const GRect box,
     const GTextOverflowMode overflow_mode, GTextAlignment alignment,
     GTextAttributes *text_attributes) {
-  bool did_shape_text = false;
   if (text >= (char *)SRAM_BASE && *text) {
-    did_shape_text = shape_text(text);
+    shape_text(text);
   }
   GSize res =
       PASSTHRU(graphics_text_layout_get_content_size_with_attributes_patch,
                text, font, box, overflow_mode, alignment, text_attributes);
-  if (did_shape_text) {
-    unshape_text(text);
-  }
   return res;
 }
 
@@ -44,9 +40,8 @@ void graphics_draw_text_patch(GContext *ctx, char *text, GFont const font,
                               const GTextOverflowMode overflow_mode,
                               GTextAlignment alignment,
                               GTextAttributes *text_attributes) {
-  bool did_shape_text = false;
   if (text >= (char *)SRAM_BASE && *text) {
-    did_shape_text = shape_text(text);
+    shape_text(text);
 
     // Mangle alignment to be kind of maybe proper.
     // If the first opinionated character in the string is RTL, the alignment
@@ -68,9 +63,6 @@ void graphics_draw_text_patch(GContext *ctx, char *text, GFont const font,
   }
   PASSTHRU(graphics_draw_text_patch, ctx, text, font, box, overflow_mode,
            alignment, text_attributes);
-  if (did_shape_text) {
-    unshape_text(text);
-  }
 }
 
 typedef void (*RenderHandler)(void *, void *, void *);
@@ -84,10 +76,12 @@ void render_wrap(void *gcontext, char **layout, bool more_text,
     line_end_1 = *(char **)(callsite_sp + LINEEND_SP_OFF);
     line_end_2 = *(char **)(callsite_sp + LINEEND_SP_OFF + 4);
     line_end = more_text ? line_end_1 : line_end_2;
-    while (line_end > line_start && *(line_end - 1) == ' ')
+    while (line_end > line_start && *(line_end - 1) == ' ') {
       line_end--;
-    while (*line_start == ' ')
+    }
+    while (*line_start == ' ') {
       line_start++;
+    }
     did_rtl_transform = rtl_apply(line_start, line_end);
   }
 
