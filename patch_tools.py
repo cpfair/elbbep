@@ -244,7 +244,7 @@ class Patcher:
         self._q(PatchDefineSymbol("%s__return" % dest_symbol, self.MICROCODE_OFFSET + end_patch_addr))
         self._q(PatchAppendAsm("%s__proxy" % dest_symbol, proxy_asm, "void"))
 
-    def wrap(self, dest_symbol, dest_match, return_type="void"):
+    def wrap(self, dest_symbol, dest_match, return_type="void", passthru=True):
         # Patch insertion points must
         # - occur at the beginning of a procedure, before the stack has been modified.
         #   (though maybe not if one doesn't need args from the stack, i.e. r0-r3 are fine).
@@ -271,7 +271,8 @@ class Patcher:
         print("Wrap begin %x" % (self.MICROCODE_OFFSET + jmp_insert_addr))
         print("Wrap return %x" % (self.MICROCODE_OFFSET + end_patch_addr))
         self._q(PatchDefineSymbol("%s__return" % dest_symbol, self.MICROCODE_OFFSET + end_patch_addr))
-        self._q(PatchAppendAsm("%s__passthru" % dest_symbol, passthru_asm, return_type))
+        if passthru:
+            self._q(PatchAppendAsm("%s__passthru" % dest_symbol, passthru_asm, return_type))
 
     def define_function(self, dest_symbol, target_addr):
         self._q(PatchDefineSymbol(dest_symbol, target_addr))

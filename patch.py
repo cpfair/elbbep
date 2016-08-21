@@ -29,7 +29,7 @@ p.wrap("graphics_draw_text_patch", gdt_match)
 
 p.wrap("graphics_text_layout_get_content_size_patch",
        p.match_symbol("graphics_text_layout_get_content_size"),
-       "GSize")
+       "GSize", passthru=False)
 p.wrap("graphics_text_layout_get_content_size_with_attributes_patch",
        p.match_symbol("graphics_text_layout_get_content_size_with_attributes"),
        "GSize")
