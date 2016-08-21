@@ -13,10 +13,10 @@ typedef struct __attribute__((packed)) ShaperLUTEntry {
   int8_t final_codept_delta;
 } ShaperLUTEntry;
 
-const int LIG_REPLACEMENT_CODEPT_MASK = (1 << 15);
+const uint16_t LIG_REPLACEMENT_CODEPT_MASK = (1 << 15);
 // NB much of this file assumes we'll be shaping 2-byte runes to other 2-byte
 // runes.
-const int RUNE_SIZE = 2;
+const uint8_t RUNE_SIZE = 2;
 
 const ShaperLUTEntry *find_lut_entry_by_codept(uint16_t codept) {
   if (codept < 0x600 && codept > 0x6ff) {
