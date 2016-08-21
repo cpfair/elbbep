@@ -11,15 +11,7 @@
 GSize graphics_text_layout_get_content_size_with_attributes_patch(
     char *text, GFont const font, const GRect box,
     const GTextOverflowMode overflow_mode, GTextAlignment alignment,
-    GTextAttributes *text_attributes) {
-  if (text >= (char *)SRAM_BASE && *text) {
-    shape_text(text);
-  }
-  GSize res =
-      PASSTHRU(graphics_text_layout_get_content_size_with_attributes_patch,
-               text, font, box, overflow_mode, alignment, text_attributes);
-  return res;
-}
+    GTextAttributes *text_attributes);
 
 GSize graphics_text_layout_get_content_size_patch(
     char *text, GFont const font, const GRect box,
@@ -33,24 +25,22 @@ void graphics_draw_text_patch(GContext *ctx, char *text, GFont const font,
                               const GTextOverflowMode overflow_mode,
                               GTextAlignment alignment,
                               GTextAttributes *text_attributes) {
-  if (text >= (char *)SRAM_BASE && *text) {
-    shape_text(text);
+  shape_text(text);
 
-    // Mangle alignment to be kind of maybe proper.
-    // If the first opinionated character in the string is RTL, the alignment
-    // will be swapped.
-    if (alignment == GTextAlignmentLeft) {
-      char *ptr = text;
-      while (*ptr) {
-        uint16_t codept = read_utf8(&ptr);
-        if (is_neutral(codept) || is_weak_ltr(codept)) {
-          continue;
-        } else if (is_rtl(codept)) {
-          alignment = GTextAlignmentRight;
-          break;
-        } else {
-          break;
-        }
+  // Mangle alignment to be kind of maybe proper.
+  // If the first opinionated character in the string is RTL, the alignment
+  // will be swapped.
+  if (alignment == GTextAlignmentLeft) {
+    char *ptr = text;
+    while (*ptr) {
+      uint16_t codept = read_utf8(&ptr);
+      if (is_neutral(codept) || is_weak_ltr(codept)) {
+        continue;
+      } else if (is_rtl(codept)) {
+        alignment = GTextAlignmentRight;
+        break;
+      } else {
+        break;
       }
     }
   }

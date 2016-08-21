@@ -350,7 +350,9 @@ class Patcher:
             self.target_bin += "\0"
         self.target_bin += open("patch.comp.bin", "rb").read()
         self.target_bin += self.trailing_bin_content
-        assert len(self.target_bin) <= self.MAX_IMAGE_SIZE, "Final image %d bytes too large :(" % (len(self.target_bin) - self.MAX_IMAGE_SIZE)
+        remaining_space = self.MAX_IMAGE_SIZE - len(self.target_bin)
+        print("Finalized with %d bytes to spare" % remaining_space)
+        assert remaining_space > 0, "Final image %d bytes too large :(" % (-remaining_space)
 
         open(destination_bin_path, "wb").write(self.target_bin)
         open("final.bin", "wb").write(self.target_bin)

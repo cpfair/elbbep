@@ -2,6 +2,7 @@
 #include "font_ranges.h"
 #include "text_shaper_lut.h"
 #include "utf8.h"
+#include "platform.h"
 
 typedef enum ShaperState { STATE_INITIAL, STATE_MEDIAL } ShaperState;
 
@@ -57,6 +58,9 @@ static uint16_t find_ligature_by_codepts(uint16_t *pattern,
 }
 
 void shape_text(char *text) {
+  if (text < (char *)SRAM_BASE || !*text) {
+    return;
+  }
   ShaperState state = STATE_INITIAL;
   char *ptr = text;
 

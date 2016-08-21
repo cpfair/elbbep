@@ -38,9 +38,11 @@ static void reverse_span(char *start, char *end) {
       break;
     case 0xC: // 0b1100
     case 0xD: // 0b1101
+      // 2 bytes
       SWAP(end_iter - 1, end_iter);
       end_iter--;
       break;
+    // 1 byte case is not needed...
     }
   }
 }

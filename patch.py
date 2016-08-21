@@ -12,6 +12,7 @@ p = Patcher(
     libpebble_a_path=sys.argv[3],
     patch_c_path="runtime/patch.c",
     other_c_paths=[
+        "runtime/patch.s",
         "runtime/text_shaper.c",
         "runtime/text_shaper_lut.c",
         "runtime/utf8.c",
