@@ -67,7 +67,7 @@ def generate_forms(alphabet, ligatures):
     return forms
 
 def pack_lut(forms):
-    # LUT is simply repeated <true codept, isolated codept, initial, medial, final>
+    # LUT is simply repeated <true codept, isolated codept, initialDelta, medialDelta, finalDelta>
     # The runtime automatically detects characters like alef that restart the SM.
     # Ligatures are assigned their own "true" codepoints.
     # The ligature table is of form <prefixn>,...,<prefix0>,<replacement> (where replacement has its MSB set)
@@ -90,12 +90,17 @@ def pack_lut(forms):
                 lig_data += struct.pack("<H", ord(c))
             lig_data += struct.pack("<H", true_codept | (1 << 15))
         line_parts = [true_codept]
+        base_transformed_codept = None
         for idx, glyph in enumerate(ch_forms):
             if glyph not in selected_glyphs:
                 selected_glyphs[glyph] = next(available_codepts)
                 dirtied_codepts.append(selected_glyphs[glyph])
-            line_parts.append(selected_glyphs[glyph])
-        lut_data += struct.pack("<HHHHH", *line_parts)
+            if not base_transformed_codept:
+                base_transformed_codept = selected_glyphs[glyph]
+                line_parts.append(selected_glyphs[glyph])
+            else:
+                line_parts.append(selected_glyphs[glyph] - base_transformed_codept)
+        lut_data += struct.pack("<HHbbb", *line_parts)
     return lut_data, lig_data, selected_glyphs, dirtied_codepts
 
 def contiguous_ranges(vals):

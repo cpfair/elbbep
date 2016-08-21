@@ -5,12 +5,12 @@
 
 typedef enum ShaperState { STATE_INITIAL, STATE_MEDIAL } ShaperState;
 
-typedef struct ShaperLUTEntry {
+typedef struct __attribute__((packed)) ShaperLUTEntry {
   uint16_t true_codept;
   uint16_t isolated_codept;
-  uint16_t initial_codept;
-  uint16_t medial_codept;
-  uint16_t final_codept;
+  int8_t initial_codept_delta;
+  int8_t medial_codept_delta;
+  int8_t final_codept_delta;
 } ShaperLUTEntry;
 
 const int LIG_REPLACEMENT_CODEPT_MASK = (1 << 15);
@@ -108,22 +108,21 @@ void shape_text(char *text) {
           // Or, if this character has no medial form.
           (
               // Indicated by identical medial and final forms.
-              this_lut_entry->medial_codept == this_lut_entry->final_codept &&
+              this_lut_entry->medial_codept_delta == this_lut_entry->final_codept_delta &&
               // Contraindication for stuff like kashida.
-              this_lut_entry->isolated_codept !=
-                  this_lut_entry->final_codept)) {
+              this_lut_entry->final_codept_delta)) {
         // Final, or isolated form.
         if (state == STATE_INITIAL) {
           write_utf8(this_codept_ptr, this_lut_entry->isolated_codept);
         } else {
-          write_utf8(this_codept_ptr, this_lut_entry->final_codept);
+          write_utf8(this_codept_ptr, this_lut_entry->isolated_codept + this_lut_entry->final_codept_delta);
         }
         state = STATE_INITIAL;
       } else if (state == STATE_INITIAL) {
         state = STATE_MEDIAL;
-        write_utf8(this_codept_ptr, this_lut_entry->initial_codept);
+        write_utf8(this_codept_ptr, this_lut_entry->isolated_codept + this_lut_entry->initial_codept_delta);
       } else {
-        write_utf8(this_codept_ptr, this_lut_entry->medial_codept);
+        write_utf8(this_codept_ptr, this_lut_entry->isolated_codept + this_lut_entry->medial_codept_delta);
       }
     } else {
       // Not a shapable character - reset the state.
