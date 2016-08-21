@@ -1,5 +1,7 @@
-#include "patch.auto.h"
+// clang-format off
 #include "pebble.h"
+// clang-format on
+#include "patch.auto.h"
 #include "platform.h"
 #include "rtl.h"
 #include "rtl_ranges.h"
@@ -11,21 +13,6 @@ void *memset(void *dest, int val, size_t size) {
     *((char *)dest++) = (char)val;
   }
   return NULL; // Whatever.
-}
-
-GSize graphics_text_layout_get_content_size_patch(
-    char *text, GFont const font, const GRect box,
-    const GTextOverflowMode overflow_mode, GTextAlignment alignment) {
-  bool did_shape_text = false;
-  if (text >= (char *)SRAM_BASE && *text) {
-    did_shape_text = shape_text(text);
-  }
-  GSize res = PASSTHRU(graphics_text_layout_get_content_size_patch, text, font,
-                       box, overflow_mode, alignment);
-  if (did_shape_text) {
-    unshape_text(text);
-  }
-  return res;
 }
 
 GSize graphics_text_layout_get_content_size_with_attributes_patch(
@@ -43,6 +30,13 @@ GSize graphics_text_layout_get_content_size_with_attributes_patch(
     unshape_text(text);
   }
   return res;
+}
+
+GSize graphics_text_layout_get_content_size_patch(
+    char *text, GFont const font, const GRect box,
+    const GTextOverflowMode overflow_mode, GTextAlignment alignment) {
+  return PASSTHRU(graphics_text_layout_get_content_size_with_attributes_patch, text, font,
+                       box, overflow_mode, alignment, NULL);
 }
 
 void graphics_draw_text_patch(GContext *ctx, char *text, GFont const font,
