@@ -23,7 +23,10 @@ codegen_path = sys.argv[3]
 scratch_codepoint_ranges = ((0x700, 0x750), (0x780, 0x7FF + 1))
 
 kashida = "ـ"
-shaped_alphabet = "غظضذخثتشرقصفعسنملكيطحزوهدجبا" + kashida
+shaped_alphabet = "ابپتٹثجچحخدڈذرڑزژسشصضطظعغفقكکگلمنوهھءیےټڅځډړږښګڼيېۍئڕێۆەڵڤ" + kashida
+for ch in shaped_alphabet:
+    assert len(ch.encode("utf-8")) == 2, "Alphabet member %s (%x) not encoded in 2 bytes" % (ch, ord(ch))
+
 supplemental_alphabet = "١٢٣٤٥٦٧٨٩٠؟؛،"
 ligatures = ["لا"]
 
@@ -40,7 +43,7 @@ def shape_text(txt):
             missing_chars.add(missing_char)
 
     if missing_chars:
-        raise Exception("The following characters are missing from the font: %s" % missing_chars)
+        raise Exception("The following characters are missing from the font: %s (%s)" % (missing_chars, [hex(ord(x)) for x in missing_chars]))
     return glyphs
 
 missing_glyph = shape_text("ᓄ")[0]["g"]
