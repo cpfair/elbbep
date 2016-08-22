@@ -12,18 +12,24 @@ import os
 #  It would be possible to force this - but at time of writing I'm planning on using the same family everywhere.
 #  So it's not a problem.
 
-if len(sys.argv) < 4:
-    print("text_shaper.py font.ttf map_out.json code_out_dir/")
+if len(sys.argv) < 5:
+    print("text_shaper.py font.ttf subset map_out.json code_out_dir/")
     sys.exit(0)
 
 font_path = sys.argv[1]
-map_path = sys.argv[2]
-codegen_path = sys.argv[3]
+subset_key = sys.argv[2]
+map_path = sys.argv[3]
+codegen_path = sys.argv[4]
 
 scratch_codepoint_ranges = ((0x700, 0x750), (0x780, 0x7FF + 1))
 
 kashida = "ـ"
-shaped_alphabet = "ابپتٹثجچحخدڈذرڑزژسشصضطظعغفقكکگلمنوهھءیےټڅځډړږښګڼيېۍئڕێۆەڵڤ" + kashida
+
+subsets = {
+    "full": "ابپتٹثجچحخدڈذرڑزژسشصضطظعغفقكکگلمنوهھءیےټڅځډړږښګڼيېۍئڕێۆەڵڤ" + kashida,
+    "arabic": "غظضذخثتشرقصفعسنملكيطحزوهدجبا" + kashida
+}
+shaped_alphabet = subsets[subset_key]
 for ch in shaped_alphabet:
     assert len(ch.encode("utf-8")) == 2, "Alphabet member %s (%x) not encoded in 2 bytes" % (ch, ord(ch))
 

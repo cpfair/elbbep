@@ -40,6 +40,12 @@ hw_rev_platform_map = {
     "spalding": "chalk"
 }
 
+platform_subset_map = {
+    "aplite": "arabic",
+    "basalt": "full",
+    "chalk": "full"
+}
+
 def cache_path(ns, k):
     if not os.path.exists(cache_root):
         os.mkdir(cache_root)
@@ -66,7 +72,6 @@ def download_sdk(fw_ver):
     zip_path = cache_path("sdk-zip", "%s.tar.bz2" % fw_ver)
     if not os.path.exists(zip_path):
         sdk_manifest = requests.get("http://sdk.getpebble.com/v1/files/sdk-core/%s?channel=release" % fw_ver).json()
-        print(sdk_manifest)
         url = sdk_manifest["url"]
         open(zip_path, "wb").write(requests.get(url).content)
 
@@ -148,7 +153,7 @@ def extract_fonts(fw_dir):
             unpacked_path])
     return unpacked_path
 
-def generate_fonts(original_fonts_path):
+def generate_fonts(original_fonts_path, subset_key):
     new_fonts_path = os.path.join(os.path.dirname(original_fonts_path), "generated_fonts")
     if not os.path.exists(new_fonts_path):
         os.mkdir(new_fonts_path)
@@ -156,6 +161,7 @@ def generate_fonts(original_fonts_path):
             "python",
             "fonts/compose.py",
             original_fonts_path,
+            subset_key,
             new_fonts_path,
             "runtime/"])
     return new_fonts_path
@@ -241,7 +247,7 @@ fw_ver, orig_pbz_path = download_firmware(firmware_series, hw_rev)
 fw_dir = unpack_fw(fw_ver, hw_rev, orig_pbz_path)
 sdk_dir = download_sdk(fw_ver)
 if out_pbl_path:
-    new_resources_dir = generate_fonts(extract_fonts(fw_dir))
+    new_resources_dir = generate_fonts(extract_fonts(fw_dir), platform_subset_map[hw_rev_platform_map[hw_rev]])
     generate_langpack(new_resources_dir, out_pbl_path)
 patched_bin = patch_firmware(os.path.join(fw_dir, "tintin_fw.bin"), sdk_dir, hw_rev)
 pack_firmware(fw_ver, fw_dir, patched_bin, out_pbz_path)
