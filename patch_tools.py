@@ -171,42 +171,7 @@ class Patcher:
             markers=markers
         )
 
-    def _regmatch_asm(self, args):
-        dirtied_registers = set()
-        # Fish any arguments they requested out of the stack, or wherever.
-        proxy_asm = ""
-        trailing_proxy_asm = ""
-        stacked_args = max(0, len(args) - 4)
-        stacked_args_offset = stacked_args * 4
-        for arg_reg_no, arg in enumerate(args):
-            if type(arg) is CallsiteValue:
-                if arg.register:
-                    reg_no = int(arg.register.strip("r")) if hasattr(arg.register, "strip") else arg.register
-                    if arg_reg_no < 4 and arg_reg_no == reg_no and arg_reg_no not in dirtied_registers:
-                        continue
-                    dirtied_registers.add(arg_reg_no)
-                    stack_off = reg_no * 4
-                    if arg_reg_no < 4:
-                        proxy_asm += "LDR r%d, [sp, #%d]\n" % (arg_reg_no, stack_off)
-                    else:
-                        stack_dest_off = -(arg_reg_no - 4) * 4 - stacked_args_offset
-                        proxy_asm += "LDR ip, [sp, #%d]\n" % stack_off
-                        proxy_asm += "STR ip, [sp, #%d]\n" % stack_dest_off
-            elif type(arg) is CallsiteSP:
-                if arg_reg_no < 4:
-                    proxy_asm += "ADD r%d, sp, #%d\n" % (arg_reg_no, 56)
-                else:
-                    stack_dest_off = -(arg_reg_no - 4) * 4 - stacked_args_offset
-                    proxy_asm += "ADD ip, sp, #%d\n" % 56
-                    proxy_asm += "STR ip, [sp, #%d]\n" % stack_dest_off
-            else:
-                raise RuntimeError("Unknown register parameter request %s" % type(arg))
-        if stacked_args:
-            proxy_asm += "SUB sp, #%d\n" % stacked_args_offset
-            trailing_proxy_asm += "ADD sp, #%d\n" % stacked_args_offset
-        return proxy_asm, trailing_proxy_asm
-
-    def inject(self, dest_symbol, dest_match, args=[], supplant=False):
+    def inject(self, dest_symbol, dest_match, supplant=False, asm=None):
         # Patch insertion points must
         # - not have any instruction in the next 2 half-words that is PC-relative
         #   (as these are copied into the proxy stub)
@@ -224,14 +189,14 @@ class Patcher:
 
         # Assemble the proxy function to be assembled and linked
         # Preserve all registers of the caller
-        proxy_asm = "PUSH.W {r0-r12, lr}\n"
-        arg_setup, arg_teardown = self._regmatch_asm(args)
-        proxy_asm += arg_setup
+        proxy_asm = "PUSH {r0-r3, ip, lr}\n"
         # Jump to injected function
-        proxy_asm += "BLX %s\n" % dest_symbol
-        proxy_asm += arg_teardown
+        if asm:
+            proxy_asm += asm
+        else:
+            proxy_asm += "BLX %s\n" % dest_symbol
         # Restore caller variables
-        proxy_asm += "POP.W {r0-r12, lr}\n"
+        proxy_asm += "POP {r0-r3, ip, lr}\n"
         if not supplant:
             # Perform whatever actions we overwrote.
             for byte in overwrote_mcode:

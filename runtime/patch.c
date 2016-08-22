@@ -48,12 +48,8 @@ void graphics_draw_text_patch(GContext *ctx, char *text, GFont const font,
            alignment, text_attributes);
 }
 
-typedef void (*RenderHandler)(void *, void *, void *);
-void render_wrap(void *gcontext, char **layout, bool more_text,
-                 RenderHandler handler, char *callsite_sp) {
-  // First, apply RTL transforms.
-  char *line_start, *line_end, *line_end_1, *line_end_2;
-  line_start = *layout;
+void* render_wrap_pre(char* line_start, bool more_text, char* callsite_sp) {
+  char *line_end, *line_end_1, *line_end_2;
   bool did_rtl_transform = false;
   if (line_start >= (char *)SRAM_BASE && *line_start) {
     line_end_1 = *(char **)(callsite_sp + LINEEND_SP_OFF);
@@ -62,18 +58,9 @@ void render_wrap(void *gcontext, char **layout, bool more_text,
     while (line_end > line_start && *(line_end - 1) == ' ') {
       line_end--;
     }
-    while (*line_start == ' ') {
-      line_start++;
+    if (rtl_apply(line_start, line_end)) {
+      return line_end;
     }
-    did_rtl_transform = rtl_apply(line_start, line_end);
   }
-
-  // Call through to actual render handler.
-  void *mystery_argument = *(void **)(callsite_sp + RENDERHDLR_ARG3_SP_OFF);
-  handler(gcontext, layout, mystery_argument);
-
-  // If we applied the RTL operations once, do them again to undo the changes.
-  if (did_rtl_transform) {
-    rtl_apply(line_start, line_end);
-  }
+  return NULL;
 }

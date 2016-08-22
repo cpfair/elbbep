@@ -75,7 +75,7 @@ render_handler_call_match = p.match(r"""
     b.+
 """)
 
-more_text_reg_match = p.match(r"c(mp|bnz).+r(?P<reg>\d+).*", start=layout_driver_addr, end=render_handler_call_match.start, n=-1)
+more_text_reg_match = p.match(r"c(mp|bnz).+(?P<reg>r\d+).*", start=layout_driver_addr, end=render_handler_call_match.start, n=-1)
 more_text_reg_value = CallsiteValue(register=more_text_reg_match.groups["reg"])
 print("More-text register %s" % more_text_reg_match.groups["reg"])
 
@@ -87,14 +87,50 @@ if int(hdlr_reg_value.register.strip("r")) == int(more_text_reg_value.register.s
     # There's another place to find it - at the end of the entire function right before it loops back to render another line
     # I don't use this as the primary source as it's far removed from the actual render call
     # So the register might be repurposed by then
-    more_text_reg_match = p.match(r"c(mp|bnz).+r(?P<reg>\d+).*", start=layout_driver_addr, end=layout_driver_end_match.start, n=-3)
+    more_text_reg_match = p.match(r"c(mp|bnz).+(?P<reg>r\d+).*", start=layout_driver_addr, end=layout_driver_end_match.start, n=-3)
     more_text_reg_value = CallsiteValue(register=more_text_reg_match.groups["reg"])
     print("More-text register re-used for hdlr address!")
     print("More-text register re-matched to %s" % more_text_reg_match.groups["reg"])
 assert int(more_text_reg_value.register.strip("r")) > 2
 
 p.define_macro("RENDERHDLR_ARG3_SP_OFF", render_handler_call_match.groups["arg3_sp_off"])
-p.inject("render_wrap", render_handler_call_match, supplant=True,
-    args=[CallsiteValue(register=0), CallsiteValue(register=1), more_text_reg_value, hdlr_reg_value, CallsiteSP()])
+
+# The magic number 40 in this block is the combined stack offset for what we push here,
+# plus what the injection wrapper pushes.
+render_wrap_asm = """
+    @ At this point, we have the render handler args 1 (gcontext) and 2 (layout) in r0/r1, and were about to load the 3rd (??) from wherever.
+    @ The handler itself is in r3, probably
+    @ render_wrap_pre wants *layout, more_text, and callsite SP
+    @ So, first back up the render handler args
+    PUSH {r4-r7}
+    MOV ip, """ + more_text_reg_value.register + """
+    MOV r6, """ + hdlr_reg_value.register + """
+    MOV r4, r0
+    MOV r5, r1
+    @ Set up render_wrap_pre args
+    LDR r7, [r1]
+    MOV r0, r7
+    MOV r1, ip
+    ADD r2, sp, #40
+    BL render_wrap_pre
+    @ The return value is either line_end, or NULL if nothing was RTLed - we need this for later
+    @ Reset the renderer args
+    MOV r1, r5
+    MOV r5, r0
+    MOV r0, r4
+    @ Load the final handler argument
+    LDR r2, [sp, #""" + str(int(render_handler_call_match.groups["arg3_sp_off"]) + 40) + """]
+    @ Run handler
+    BLX r6
+    @ Run rtl_apply again, if required
+    CBZ r5, done
+    MOV r0, r7
+    MOV r1, r5
+    BL rtl_apply
+done:
+    POP {r4-r7}
+"""
+
+p.inject("render_wrap", render_handler_call_match, supplant=True, asm=render_wrap_asm)
 
 p.finalize(sys.argv[4])
