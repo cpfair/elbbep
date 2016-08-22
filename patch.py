@@ -69,10 +69,10 @@ p.define_macro("LINEEND_SP_OFF", lineend_sp_off)
 render_handler_call_match = p.match(r"""
     mov r0, .+
     mov r1, .+
-    ldr r2, .+
     JUMP
+    ldr r2, \[sp, #(?P<arg3_sp_off>\d+)\].*
     blx (?P<hdlr_reg>r\d+)
-    b\.n\s+0x(?P<final>[a-f0-9]+).*
+    b.+
 """)
 
 more_text_reg_match = p.match(r"c(mp|bnz).+r(?P<reg>\d+).*", start=layout_driver_addr, end=render_handler_call_match.start, n=-1)
@@ -93,8 +93,8 @@ if int(hdlr_reg_value.register.strip("r")) == int(more_text_reg_value.register.s
     print("More-text register re-matched to %s" % more_text_reg_match.groups["reg"])
 assert int(more_text_reg_value.register.strip("r")) > 2
 
+p.define_macro("RENDERHDLR_ARG3_SP_OFF", render_handler_call_match.groups["arg3_sp_off"])
 p.inject("render_wrap", render_handler_call_match, supplant=True,
-    return_loc=int(render_handler_call_match.groups["final"], 16),
-    args=[CallsiteValue(register=0), CallsiteValue(register=1), CallsiteValue(register=2), hdlr_reg_value, more_text_reg_value, CallsiteSP()])
+    args=[CallsiteValue(register=0), CallsiteValue(register=1), more_text_reg_value, hdlr_reg_value, CallsiteSP()])
 
 p.finalize(sys.argv[4])
