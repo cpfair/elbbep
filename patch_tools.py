@@ -177,7 +177,8 @@ class Patcher:
         proxy_asm = ""
         trailing_proxy_asm = ""
         stacked_args = max(0, len(args) - 4)
-        stacked_args_offset = stacked_args * 4
+        blank_stacked_args_offset = (stacked_args % 2) * 4
+        stacked_args_offset = stacked_args * 4 + blank_stacked_args_offset
         for arg_reg_no, arg in enumerate(args):
             if type(arg) is CallsiteValue:
                 if arg.register:
@@ -185,19 +186,25 @@ class Patcher:
                     if arg_reg_no < 4 and arg_reg_no == reg_no and arg_reg_no not in dirtied_registers:
                         continue
                     dirtied_registers.add(arg_reg_no)
-                    stack_off = reg_no * 4
                     if arg_reg_no < 4:
-                        proxy_asm += "LDR r%d, [sp, #%d]\n" % (arg_reg_no, stack_off)
+                        if reg_no not in dirtied_registers:
+                            proxy_asm += "MOV r%d, r%d\n" % (arg_reg_no, reg_no)
+                        else:
+                            assert False, "Failed matching %s" % arg
                     else:
-                        stack_dest_off = -(arg_reg_no - 4) * 4 - stacked_args_offset
-                        proxy_asm += "LDR ip, [sp, #%d]\n" % stack_off
+                        stack_dest_off = -stacked_args_offset + (arg_reg_no - 4) * 4
+                        if reg_no not in dirtied_registers:
+                            proxy_asm += "MOV ip, r%d\n" % (reg_no)
+                        else:
+                            assert False, "Failed matching %s" % arg
                         proxy_asm += "STR ip, [sp, #%d]\n" % stack_dest_off
             elif type(arg) is CallsiteSP:
                 if arg_reg_no < 4:
                     proxy_asm += "ADD r%d, sp, #%d\n" % (arg_reg_no, 56)
+                    dirtied_registers.add(arg_reg_no)
                 else:
-                    stack_dest_off = -(arg_reg_no - 4) * 4 - stacked_args_offset
-                    proxy_asm += "ADD ip, sp, #%d\n" % 56
+                    stack_dest_off = -stacked_args_offset + (arg_reg_no - 4) * 4
+                    proxy_asm += "ADD ip, sp, #%d\n" % 24
                     proxy_asm += "STR ip, [sp, #%d]\n" % stack_dest_off
             else:
                 raise RuntimeError("Unknown register parameter request %s" % type(arg))
@@ -206,7 +213,7 @@ class Patcher:
             trailing_proxy_asm += "ADD sp, #%d\n" % stacked_args_offset
         return proxy_asm, trailing_proxy_asm
 
-    def inject(self, dest_symbol, dest_match, args=[], supplant=False):
+    def inject(self, dest_symbol, dest_match, args=[], supplant=False, return_loc=None):
         # Patch insertion points must
         # - not have any instruction in the next 2 half-words that is PC-relative
         #   (as these are copied into the proxy stub)
@@ -217,21 +224,23 @@ class Patcher:
         jmp_mcode = [0, 0, 0, 0] # Filled in later by the relocator.
         jmp_insert_addr = dest_match.markers["JUMP"]
         end_patch_addr = jmp_insert_addr + len(jmp_mcode)
+        if return_loc:
+            end_patch_addr = return_loc
         self._q(PatchBranchOffset(jmp_insert_addr, "%s__proxy" % dest_symbol, False))
 
         # Grab the stuff we're going to overwrite
         overwrote_mcode = self.target_bin[jmp_insert_addr:jmp_insert_addr + len(jmp_mcode)]
 
         # Assemble the proxy function to be assembled and linked
-        # Preserve all registers of the caller
-        proxy_asm = "PUSH.W {r0-r12, lr}\n"
+        # Preserve some registers of the caller
+        proxy_asm = "PUSH.W {r0-r3, ip, lr}\n"
         arg_setup, arg_teardown = self._regmatch_asm(args)
         proxy_asm += arg_setup
         # Jump to injected function
         proxy_asm += "BLX %s\n" % dest_symbol
         proxy_asm += arg_teardown
-        # Restore caller variables
-        proxy_asm += "POP.W {r0-r12, lr}\n"
+        # Restore caller registers
+        proxy_asm += "POP.W {r0-r3, ip, lr}\n"
         if not supplant:
             # Perform whatever actions we overwrote.
             for byte in overwrote_mcode:
