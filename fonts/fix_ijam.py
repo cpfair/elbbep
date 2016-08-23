@@ -85,9 +85,9 @@ def process_glyph(in_path, out_path):
         ijam_bmp_data[x + sx, y + sy] = True
         ijam_bmp_data[x + sx, y] = True
         if x <= 0 or x + sx <= 0:
-            hit_left = True
+            hit_left = max(0 - x + 1, 0 - (x + sx) + 1)
         if x >= width - 1 or x + sx >= width - 1:
-            hit_right = True
+            hit_left = max(x - width + 1, (x + sx) - width + 1)
 
 
     if hit_left or hit_right:
@@ -102,9 +102,9 @@ def process_glyph(in_path, out_path):
         for k, v in ijam_bmp_data.items():
             new_ijam_bmp_data[(k[0] - off_x, k[1])] = v
             if k[0] - off_x <= 0:
-                hit_left = True
+                hit_left = 0 - (k[0] - off_x) + 1
             if k[0] - off_x >= width:
-                hit_right = True
+                hit_right = (k[0] - off_x) - width + 1
         ijam_bmp_data = new_ijam_bmp_data
 
     # Expand bitmap as appropriate
@@ -121,8 +121,7 @@ def process_glyph(in_path, out_path):
         if y >= height:
             hdy = max(y - height + 1, hdy)
     if hit_left:
-        sx += 1
-        dl -= 1
+        dl -= hit_left
     advance += sx + hdx
     left += sx + dl
     width += sx + hdx
