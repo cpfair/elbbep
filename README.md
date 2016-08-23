@@ -21,7 +21,7 @@ Requirements
 Usage
 -----
 
-Run `generator.py <hw_rev> <out.pbz> [<out.pbl>]` to generate a firmware package `out.pbz` for the specified Pebble `hw_rev`, and (optionally) an accompanying language pack `out.pbl`. Language packs are not hardware-specific.
+Run `generator.py <hw_rev> <out.pbz> [<out.pbl>]` to generate a firmware package `out.pbz` for the specified Pebble `hw_rev`, and (optionally) an accompanying language pack `out.pbl`.
 
 This tool automatically downloads parts of the Pebble Developer SDK, so its use requires agreement to the Pebble Developer [Terms of Use](https://developer.getpebble.com/legal/terms-of-use) and [SDK License Agreement](https://developer.getpebble.com/legal/sdk-license).
 
