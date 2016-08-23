@@ -4,6 +4,7 @@ import json
 import struct
 import sys
 import os
+import unicodedata
 
 # This file generates the code that drives the Arabic text shaper SM.
 # It also generates the glyph-codepoint mapping used to produce the Arabic fonts.
@@ -12,14 +13,15 @@ import os
 #  It would be possible to force this - but at time of writing I'm planning on using the same family everywhere.
 #  So it's not a problem.
 
-if len(sys.argv) < 5:
-    print("text_shaper.py font.ttf subset map_out.json code_out_dir/")
+if len(sys.argv) < 6:
+    print("text_shaper.py font.ttf subset map_out.json labels_out.json code_out_dir/")
     sys.exit(0)
 
 font_path = sys.argv[1]
 subset_key = sys.argv[2]
 map_path = sys.argv[3]
-codegen_path = sys.argv[4]
+labels_path = sys.argv[4]
+codegen_path = sys.argv[5]
 
 scratch_codepoint_ranges = ((0x700, 0x750), (0x780, 0x7FF + 1))
 
@@ -81,12 +83,14 @@ def pack_lut(forms):
     available_codepts = chain(*(range(*p) for p in scratch_codepoint_ranges))
     selected_glyphs = {}
     dirtied_codepts = []
+    labels = {}
     lut_data = bytes()
     lig_data = bytes()
     for ch in sorted(list(forms.keys())):
         ch_forms = forms[ch]
         if len(ch) == 1:
             true_codept = ord(ch)
+            label_base = unicodedata.name(ch)
         else:
             assert len(ch) <= 2, "Ligature handling supports 2-char patterns only"
             # A ligature - also update the ligature table.
@@ -95,19 +99,21 @@ def pack_lut(forms):
             for c in ch:
                 lig_data += struct.pack("<H", ord(c))
             lig_data += struct.pack("<H", true_codept | (1 << 15))
+            label_base = "LIG-%s" % ch
         line_parts = [true_codept]
         base_transformed_codept = None
         for idx, glyph in enumerate(ch_forms):
             if glyph not in selected_glyphs:
                 selected_glyphs[glyph] = next(available_codepts)
                 dirtied_codepts.append(selected_glyphs[glyph])
+                labels[selected_glyphs[glyph]] = label_base + "-" + ["ISO", "INI", "MED", "FIN"][idx]
             if not base_transformed_codept:
                 base_transformed_codept = selected_glyphs[glyph]
                 line_parts.append(selected_glyphs[glyph])
             else:
                 line_parts.append(selected_glyphs[glyph] - base_transformed_codept)
         lut_data += struct.pack("<HHbbb", *line_parts)
-    return lut_data, lig_data, selected_glyphs, dirtied_codepts
+    return lut_data, lig_data, selected_glyphs, labels, dirtied_codepts
 
 def contiguous_ranges(vals):
     run_range = []
@@ -146,7 +152,7 @@ def write_lut(lut_data, lig_data, shapable_ranges, out_dir):
 character_forms = generate_forms(shaped_alphabet, ligatures)
 # Build the LUT
 # This also assigns codepoints to the glyph within the defined ranges
-lut_data, lig_data, selected_glyphs, dirtied_codepts = pack_lut(character_forms)
+lut_data, lig_data, selected_glyphs, labels, dirtied_codepts = pack_lut(character_forms)
 shapable_ranges = contiguous_ranges(dirtied_codepts)
 # Add un-shaped codepoints to the font.
 supplement_selected_glyphs(selected_glyphs, supplemental_alphabet)
@@ -156,3 +162,4 @@ write_lut(lut_data, lig_data, shapable_ranges, codegen_path)
 # Write misc data files used as input to fontgen.
 selected_codepts = {v: k for k, v in selected_glyphs.items()}
 json.dump(selected_codepts, open(map_path, "w"))
+json.dump(labels, open(labels_path, "w"))

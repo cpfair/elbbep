@@ -9,6 +9,7 @@ import sys
 import itertools
 import json
 from math import ceil
+import unicodedata
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '../'))
 import generate_c_byte_array
@@ -131,6 +132,9 @@ class Font:
         self.zero_width_codepts = []
         self.shift = (0, 0)
         self.threshold = 127
+        self.dump_dir = None
+        self.collect_dir = None
+        self.codept_labels = {}
 
         self.glyph_header = ''.join((
             '<',  # little_endian
@@ -186,6 +190,15 @@ class Font:
 
     def set_threshold(self, threshold):
         self.threshold = threshold
+
+    def set_dump_dir(self, dump_dir):
+        self.dump_dir = dump_dir
+
+    def set_collect_dir(self, collect_dir):
+        self.collect_dir = collect_dir
+
+    def set_codept_labels(self, labels_path):
+        self.codept_labels = {int(k): v for k, v in json.load(open(labels_path, "r")).items()}
 
     def is_supported_glyph(self, codepoint):
         return (self.face.get_char_index(codepoint) > 0 or
@@ -300,7 +313,7 @@ class Font:
         return True
 
 
-    def glyph_bits(self, gindex):
+    def glyph_bits(self, codepoint, gindex):
         if gindex ==  ZERO_WIDTH_GLYPH_INDEX:
             return struct.pack(self.glyph_header, 0, 0, 0, 0, 0)
         flags = (freetype.FT_LOAD_RENDER if self.legacy else
@@ -332,6 +345,44 @@ class Font:
                 # freetype-py should never give us a value not in (1,2)
                 raise Exception("Unsupported pixel mode: {}. Font {}".
                                 format(pixel_mode, self.ttf_path))
+
+            if self.dump_dir:
+                fn = str(gindex)
+                try:
+                    fn += "_" + self.codept_labels[codepoint]
+                except KeyError:
+                    name = unicodedata.name(unichr(codepoint), None)
+                    if name:
+                        fn += "_" + name
+                fn += ".txt"
+                fd = open(os.path.join(self.dump_dir, fn), "w")
+                idx = 0
+                fd.write("%s\n" % json.dumps({
+                    "width": width,
+                    "height": height,
+                    "left": left,
+                    "bottom": bottom
+                }))
+                for i in range(bitmap.rows):
+                    for j in range(bitmap.width):
+                        fd.write("#" if glyph_bitmap[idx] else " ")
+                        idx += 1
+                    fd.write("\n")
+                fd.close()
+
+                if self.collect_dir:
+                    collect_path = os.path.join(self.collect_dir, fn)
+                    if os.path.exists(collect_path):
+                        fd = open(collect_path, "r")
+                        meta = json.loads(fd.readline())
+                        width = meta["width"]
+                        height = meta["height"]
+                        left = meta["left"]
+                        bottom = meta["bottom"]
+                        bitmap_str = fd.read().replace("\n", "")
+                        assert len(bitmap_str) == width * height
+                        glyph_bitmap = [1 if c == "#" else 0 for c in bitmap_str]
+
 
             if (self.features & FEATURE_RLE4):
                 # HACK WARNING: override the height with the number of RLE4 units.
@@ -402,7 +453,7 @@ class Font:
         def add_glyph(codepoint, next_offset, gindex, glyph_indices_lookup):
             offset = next_offset
             if gindex not in glyph_indices_lookup:
-                glyph_bits = self.glyph_bits(gindex)
+                glyph_bits = self.glyph_bits(codepoint, gindex)
                 glyph_indices_lookup[gindex] = offset
                 self.glyph_table.append(glyph_bits)
                 next_offset += len(glyph_bits)
@@ -527,6 +578,13 @@ def cmd_pfo(args):
         f.set_shift(tuple((int(x) for x in args.shift.split(","))))
     if (args.threshold):
         f.set_threshold(int(args.threshold))
+    if (args.dump_bitmaps):
+        f.set_dump_dir(args.dump_bitmaps)
+    if (args.collect_bitmaps):
+        assert args.dump_bitmaps, "--collect-bitmaps requires --dump-bitmaps" # Because I'm lazy
+        f.set_collect_dir(args.collect_bitmaps)
+    if (args.codept_labels):
+        f.set_codept_labels(args.codept_labels)
     f.set_version(int(args.version))
     f.convert_to_pfo(args.output_pfo)
 
@@ -580,6 +638,7 @@ def process_cmd_line_args():
     pbi_parser.add_argument('--map', help="json map of codept->glyphs to embed")
     pbi_parser.add_argument('--dump-bitmaps', help="directory to write editable bitmaps into")
     pbi_parser.add_argument('--collect-bitmaps', help="directory to read bitmaps from, overriding TTF input")
+    pbi_parser.add_argument('--codept-labels', help="JSON map of codept->name for dumping bitmaps")
     pbi_parser.add_argument('--zero-width-codept-list', help="json list of codepoints to assign a zero-width glyph")
     pbi_parser.add_argument('--shift', help="dx,dy to shift glyphs by")
     pbi_parser.add_argument('--threshold', help="black/white cutoff value (0-255)", type=int)

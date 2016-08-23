@@ -13,9 +13,9 @@ if len(sys.argv) < 5:
     print("compose.py input_pfo_dir subset output_pfo_dir output_code_dir")
     sys.exit(0)
 
-MergeMember = namedtuple("MergeMember", "ttf_path size with_shaper codepts threshold")
+MergeMember = namedtuple("MergeMember", "ttf_path size with_shaper codepts threshold fix_ijam")
 MergeMember.__new__.__defaults__ = (None,) * len(MergeMember._fields)
-ShaperResult = namedtuple("ShaperResult", "map_tf")
+ShaperResult = namedtuple("ShaperResult", "map_tf labels_tf")
 
 ARABIC_FONT = "/Library/Fonts/Tahoma.ttf"
 ARABIC_FONT_BOLD = "/Library/Fonts/Tahoma Bold.ttf"
@@ -57,7 +57,7 @@ TEMPLATES = {
         MergeMember(HEBREW_FONT, 14, False, HEBREW_CODEPT_LIST)
     ],
     (14, "BOLD"): [
-        MergeMember(ARABIC_FONT_BOLD, 13, True),
+        MergeMember(ARABIC_FONT_BOLD, 13, True, fix_ijam=True),
         MergeMember(HEBREW_FONT_BOLD, 14, False, HEBREW_CODEPT_LIST)
     ],
     (18, None): [
@@ -65,12 +65,12 @@ TEMPLATES = {
         MergeMember(HEBREW_FONT, 15, False, HEBREW_CODEPT_LIST)
     ],
     (18, "BOLD"): [
-        MergeMember(ARABIC_FONT_BOLD, 14, True),
+        MergeMember(ARABIC_FONT_BOLD, 14, True, fix_ijam=True),
         MergeMember(HEBREW_FONT_BOLD, 16, False, HEBREW_CODEPT_LIST)
     ],
     # None of these have "condensed" variants.
     (21, "CONDENSED"): [
-        MergeMember(ARABIC_FONT, 20, True),
+        MergeMember(ARABIC_FONT, 20, True, fix_ijam=True),
         MergeMember(HEBREW_FONT, 21, False, HEBREW_CODEPT_LIST)
     ],
     # There's no way I can render this font at the correct height without 2-wide strokes
@@ -78,11 +78,11 @@ TEMPLATES = {
     # There's no "Light" version of Tahoma. I guess I could hand edit 100+ glyphs.
     # Oh well, readability right?
     (24, None): [
-        MergeMember(ARABIC_FONT, 19, True, threshold=100),
+        MergeMember(ARABIC_FONT, 19, True, threshold=100, fix_ijam=True),
         MergeMember(HEBREW_FONT, 19, False, HEBREW_CODEPT_LIST, threshold=100)
     ],
     (24, "BOLD"): [
-        MergeMember(ARABIC_FONT_BOLD, 19, True),
+        MergeMember(ARABIC_FONT_BOLD, 19, True, fix_ijam=True),
         MergeMember(HEBREW_FONT_BOLD, 19, False, HEBREW_CODEPT_LIST)
     ],
     (28, None): [
@@ -169,6 +169,16 @@ def compose_font(input_pfo_path, subset_key, output_pfo_path):
             pfo_tf.name
         ]
 
+        if member.fix_ijam:
+            collect_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bitmaps", os.path.basename(member.ttf_path).split(".")[0], str(member.size))
+            dump_dir = os.path.join(collect_dir, "dump")
+            if not os.path.exists(dump_dir):
+                os.makedirs(dump_dir)
+            fontgen_params += [
+                "--dump-bitmaps", dump_dir,
+                "--collect-bitmaps", collect_dir
+            ]
+
         if compressed:
             fontgen_params += ["--compress", "RLE4"]
 
@@ -181,17 +191,20 @@ def compose_font(input_pfo_path, subset_key, output_pfo_path):
         if member.with_shaper:
             if not shaper_result:
                 map_tf = tempfile.NamedTemporaryFile()
+                labels_tf = tempfile.NamedTemporaryFile()
                 subprocess.check_call([
                     "python3",
                     os.path.join(os.path.dirname(os.path.realpath(__file__)), "text_shaper.py"),
                     member.ttf_path,
                     subset_key,
                     map_tf.name,
+                    labels_tf.name,
                     os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "runtime")
                 ])
 
-                shaper_result = ShaperResult(map_tf)
+                shaper_result = ShaperResult(map_tf, labels_tf)
             fontgen_params += ["--map", shaper_result.map_tf.name]
+            fontgen_params += ["--codept-labels", shaper_result.labels_tf.name]
 
         zwc_tf = tempfile.NamedTemporaryFile(mode="w")
         json.dump({"codepoints": ZERO_WIDTH_CODEPOINTS}, zwc_tf)
@@ -210,6 +223,14 @@ def compose_font(input_pfo_path, subset_key, output_pfo_path):
         except subprocess.CalledProcessError:
             print("Failed generating member for %s - it will not be output!" % input_pfo_name)
             return
+
+        if member.fix_ijam:
+            subprocess.check_call([
+                "python",
+                os.path.join(os.path.dirname(os.path.realpath(__file__)), "fix_ijam.py"),
+                dump_dir,
+                collect_dir
+            ])
 
     merge_params.append(output_pfo_path)
     subprocess.check_call([
