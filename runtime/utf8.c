@@ -25,12 +25,8 @@ uint16_t read_utf8(char **ptr) {
   return codept;
 }
 
-// NB this cannot write runes larger than 2 bytes!
+// NB this can only write 2-byte runes.
 void write_utf8(char *ptr, uint16_t codept) {
-  if (codept <= 0x7f) {
-    *ptr = codept;
-  } else if (codept <= 0x7ff) {
-    *(ptr++) = 0b11000000 | (codept >> 6);
-    *(ptr) = 0b10000000 | (codept & 0b111111);
-  }
+  *(ptr++) = 0b11000000 | (codept >> 6);
+  *(ptr) = 0b10000000 | (codept & 0b111111);
 }
