@@ -29,7 +29,7 @@ kashida = "ـ"
 
 subsets = {
     "full": "ابپتٹثجچحخدڈذرڑزژسشصضطظعغفقكکگلمنوهھءیےټڅځډړږښګڼيېۍئڕێۆەڵڤ" + kashida,
-    "arabic": "غظضذخثتشرقصفعسنملكيطحزوهدجبا" + kashida
+    "arabic": "غظضذخثتشرقصفعسنملكيطحزوهدجباء" + kashida
 }
 shaped_alphabet = subsets[subset_key]
 for ch in shaped_alphabet:
