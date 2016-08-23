@@ -67,12 +67,12 @@ void shape_text(char *text) {
   const int NEXT_CODEPT = 1;
   const int THIS_CODEPT = 0;
 
-  char *next_codept_ptr = ptr;
-  uint16_t codept_buffer[2];
-  codept_buffer[NEXT_CODEPT] = read_utf8(&ptr);
-  const ShaperLUTEntry *next_lut_entry =
-      find_lut_entry_by_codept(codept_buffer[NEXT_CODEPT]);
-  char *this_codept_ptr = NULL, *last_codept_ptr = NULL;
+  char *next_codept_ptr;
+  uint16_t codept_buffer[2] = {0, 0};
+  const ShaperLUTEntry *next_lut_entry = NULL;
+  char *this_codept_ptr = NULL, *last_codept_ptr;
+  char *late_finalize_ptr = NULL;
+  const ShaperLUTEntry *late_finalize_lut_entry;
   int ligature_span = 0;
   const ShaperLUTEntry *this_lut_entry;
   do {
@@ -121,16 +121,30 @@ void shape_text(char *text) {
         } else {
           write_utf8(this_codept_ptr, this_lut_entry->isolated_codept + this_lut_entry->final_codept_delta);
         }
+        late_finalize_ptr = NULL;
         state = STATE_INITIAL;
       } else if (state == STATE_INITIAL) {
+        late_finalize_ptr = this_codept_ptr;
+        late_finalize_lut_entry = this_lut_entry;
         state = STATE_MEDIAL;
         write_utf8(this_codept_ptr, this_lut_entry->isolated_codept + this_lut_entry->initial_codept_delta);
       } else {
+        late_finalize_ptr = this_codept_ptr;
+        late_finalize_lut_entry = this_lut_entry;
         write_utf8(this_codept_ptr, this_lut_entry->isolated_codept + this_lut_entry->medial_codept_delta);
       }
     } else {
       // Not a shapable character - reset the state.
+      // First, close any existing word.
+      if (late_finalize_ptr) {
+       if (state == STATE_INITIAL) {
+         write_utf8(late_finalize_ptr, late_finalize_lut_entry->isolated_codept);
+       } else {
+         write_utf8(late_finalize_ptr, late_finalize_lut_entry->isolated_codept + late_finalize_lut_entry->final_codept_delta);
+       }
+       late_finalize_ptr = NULL;
+      }
       state = STATE_INITIAL;
     }
-  } while (codept_buffer[NEXT_CODEPT]);
+  } while (codept_buffer[THIS_CODEPT] || codept_buffer[NEXT_CODEPT]);
 }
