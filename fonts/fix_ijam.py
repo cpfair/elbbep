@@ -126,7 +126,7 @@ def process_glyph(in_path, out_path):
     advance += sx + hdx
     left += sx + dl
     width += sx + hdx
-    bottom += sy + db
+    bottom -= sy + db
     height += sy + hdy
 
     # Rebuild bitmap
