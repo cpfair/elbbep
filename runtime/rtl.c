@@ -105,7 +105,7 @@ bool rtl_apply(char *line_start, char *line_end) {
       rtl_span_start = this_codept_ptr;
     } else if (neutral && rtl_span_start &&
                (is_rtl(next_codept) || is_neutral(next_codept) ||
-                is_weak_ltr(next_codept))) {
+                is_weak_ltr(next_codept) || next_codept < 0x20)) {
       // Continue - include the neutral character in the span.
       apply_swaps(this_codept_ptr);
     } else if (!rtl && rtl_span_start) {
