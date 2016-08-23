@@ -16,7 +16,7 @@ GSize graphics_text_layout_get_content_size_with_attributes_patch(
 GSize graphics_text_layout_get_content_size_patch(
     char *text, GFont const font, const GRect box,
     const GTextOverflowMode overflow_mode, GTextAlignment alignment) {
-  return PASSTHRU(graphics_text_layout_get_content_size_with_attributes_patch, text, font,
+  return graphics_text_layout_get_content_size_with_attributes_patch(text, font,
                        box, overflow_mode, alignment, NULL);
 }
 
