@@ -218,19 +218,26 @@ def compose_font(input_pfo_path, subset_key, output_pfo_path):
             fontgen_params += ["--list", cpt_list_tf.name]
 
         fontgen_params += ["--zero-width-codept-list", zwc_tf.name]
-        try:
-            subprocess.check_call(fontgen_params)
-        except subprocess.CalledProcessError:
-            print("Failed generating member for %s - it will not be output!" % input_pfo_name)
-            return
 
         if member.fix_ijam:
+            # We must dump the glyphs first.
+            if not glob.glob(os.path.join(dump_dir, "*.txt")):
+                try:
+                    subprocess.check_call(fontgen_params)
+                except subprocess.CalledProcessError:
+                    pass
             subprocess.check_call([
                 "python",
                 os.path.join(os.path.dirname(os.path.realpath(__file__)), "fix_ijam.py"),
                 dump_dir,
                 collect_dir
             ])
+
+        try:
+            subprocess.check_call(fontgen_params)
+        except subprocess.CalledProcessError:
+            print("Failed generating member for %s - it will not be output!" % input_pfo_name)
+            return
 
     merge_params.append(output_pfo_path)
     subprocess.check_call([
