@@ -361,7 +361,8 @@ class Font:
                     "width": width,
                     "height": height,
                     "left": left,
-                    "bottom": bottom
+                    "bottom": bottom,
+                    "advance": advance
                 }))
                 for i in range(bitmap.rows):
                     for j in range(bitmap.width):
@@ -379,6 +380,7 @@ class Font:
                         height = meta["height"]
                         left = meta["left"]
                         bottom = meta["bottom"]
+                        advance = meta["advance"]
                         bitmap_str = fd.read().replace("\n", "")
                         assert len(bitmap_str) == width * height
                         glyph_bitmap = [1 if c == "#" else 0 for c in bitmap_str]
