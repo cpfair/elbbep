@@ -28,7 +28,7 @@ scratch_codepoint_ranges = ((0x700, 0x750), (0x780, 0x7FF + 1))
 kashida = "ـ"
 
 subsets = {
-    "full": "ابپتٹثجچحخدڈذرڑزژسشصضطظعغفقكکگلمنوهھءیےټڅځډړږښګڼيېۍئڕێۆەڵڤ" + kashida,
+    "full": "ابپتٹثجچحخدڈذرڑزژسشصضطظعغفقكکگلمنوهھءیےټڅځډړږښګڼيېۍئڕێۆەڵڤأإةىؤ" + kashida,
     "arabic": "غظضذخثتشرقصفعسنملكيطحزوهدجباء" + kashida
 }
 shaped_alphabet = subsets[subset_key]
