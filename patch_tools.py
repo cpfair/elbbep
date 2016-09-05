@@ -15,7 +15,7 @@ CallsiteValue.__new__.__defaults__ = (None,) * len(CallsiteValue._fields)
 CallsiteSP = namedtuple("CallsiteSP", "")
 
 class Patcher:
-    def __init__(self, platform, target_bin_path, libpebble_a_path, patch_c_path, other_c_paths):
+    def __init__(self, platform, target_bin_path, libpebble_a_path, patch_c_path, other_c_paths, cflags=[]):
         self.platform = platform
         self.target_bin_path = target_bin_path
         self.patch_c_path = patch_c_path
@@ -50,6 +50,8 @@ class Patcher:
             "basalt": 1024 * 1024 - self.BOOTLOADER_SIZE,
             "chalk": 1024 * 1024 - self.BOOTLOADER_SIZE
         }[platform]
+
+        self.cflags = cflags
 
         self._build_symbol_table(libpebble_a_path)
 
@@ -259,6 +261,7 @@ class Patcher:
                 patch_s_composed += op.content.replace("\n", "\n\t") + "\n"
 
         cflags = ["-std=c99", "-mcpu=cortex-m3", "-mthumb", "-g", "-nostdlib", "-Wl,-Tpatch.comp.ld", "-Wl,-Map,patch.comp.map", "-D_TIME_H_", "-I.", "-Iruntime", "-Os", "-ffunction-sections", "-fdata-sections"]
+        cflags += self.cflags
 
         # Define new symbols explicitly.
         for op in self.op_queue:

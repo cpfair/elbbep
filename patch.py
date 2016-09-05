@@ -1,10 +1,13 @@
 import sys
-from patch_tools import Patcher, CallsiteValue, CallsiteSP
+from patch_tools import Patcher, CallsiteValue
 
 if len(sys.argv) < 5:
     print("patch.py platform tintin_fw.bin libpebble.a tintin_fw.out.bin")
 
 platform = sys.argv[1]
+PLATFORM_UNSHAPE_MAP = {
+    "aplite": False
+}
 
 p = Patcher(
     platform=platform,
@@ -12,14 +15,15 @@ p = Patcher(
     libpebble_a_path=sys.argv[3],
     patch_c_path="runtime/patch.c",
     other_c_paths=[
-        "runtime/patch.s",
+        "runtime/patch.S",
         "runtime/text_shaper.c",
         "runtime/text_shaper_lut.c",
         "runtime/utf8.c",
         "runtime/rtl.c",
         "runtime/rtl_ranges.c",
         "runtime/font_ranges.c"
-    ]
+    ],
+    cflags=["-DTEXT_UNSHAPE"] if PLATFORM_UNSHAPE_MAP.get(platform, True) else []
 )
 
 gdt_match = p.match_symbol("graphics_draw_text")

@@ -13,6 +13,25 @@ GSize graphics_text_layout_get_content_size_with_attributes_patch(
     const GTextOverflowMode overflow_mode, GTextAlignment alignment,
     GTextAttributes *text_attributes);
 
+#ifdef TEXT_UNSHAPE
+GSize graphics_text_layout_get_content_size_with_attributes_patch(
+    char *text, GFont const font, const GRect box,
+    const GTextOverflowMode overflow_mode, GTextAlignment alignment,
+    GTextAttributes *text_attributes) {
+  bool did_shape_text = false;
+  did_shape_text = shape_text(text);
+
+  GSize res = PASSTHRU(graphics_text_layout_get_content_size_with_attributes_patch, text, font, box, overflow_mode, alignment, text_attributes);
+
+  // Magic cookie used by the diagnostics app when checking if the firmware is installed...
+  if (did_shape_text && overflow_mode != 0xE5) {
+    unshape_text(text);
+  }
+  return res;
+}
+
+#endif
+
 GSize graphics_text_layout_get_content_size_patch(
     char *text, GFont const font, const GRect box,
     const GTextOverflowMode overflow_mode, GTextAlignment alignment) {
@@ -25,7 +44,12 @@ void graphics_draw_text_patch(GContext *ctx, char *text, GFont const font,
                               const GTextOverflowMode overflow_mode,
                               GTextAlignment alignment,
                               GTextAttributes *text_attributes) {
+#ifdef TEXT_UNSHAPE
+  bool did_shape_text = false;
+  did_shape_text = shape_text(text);
+#else
   shape_text(text);
+#endif
 
   // Mangle alignment to be kind of maybe proper.
   // If the first opinionated character in the string is RTL, the alignment
@@ -46,6 +70,11 @@ void graphics_draw_text_patch(GContext *ctx, char *text, GFont const font,
   }
   PASSTHRU(graphics_draw_text_patch, ctx, text, font, box, overflow_mode,
            alignment, text_attributes);
+#ifdef TEXT_UNSHAPE
+  if (did_shape_text) {
+    unshape_text(text);
+  }
+#endif
 }
 
 void* render_wrap_pre(char* line_start, bool more_text, char* callsite_sp) {

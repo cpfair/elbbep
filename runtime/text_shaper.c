@@ -32,6 +32,21 @@ const ShaperLUTEntry *find_lut_entry_by_codept(uint16_t codept) {
   return NULL;
 }
 
+#ifdef TEXT_UNSHAPE
+static uint16_t find_base_codept_by_shaped(uint16_t codept) {
+  const ShaperLUTEntry *shaper_lut = (ShaperLUTEntry *)ARABIC_SHAPER_LUT;
+  for (int i = 0; i < ARABIC_SHAPER_LUT_SIZE / sizeof(ShaperLUTEntry); ++i) {
+    if (shaper_lut[i].isolated_codept == codept ||
+        shaper_lut[i].isolated_codept + shaper_lut[i].initial_codept_delta == codept ||
+        shaper_lut[i].isolated_codept + shaper_lut[i].medial_codept_delta == codept ||
+        shaper_lut[i].isolated_codept + shaper_lut[i].final_codept_delta == codept) {
+      return shaper_lut[i].true_codept;
+    }
+  }
+  return 0;
+}
+#endif
+
 static uint16_t find_ligature_by_codepts(uint16_t *pattern,
                                          size_t pattern_size) {
   bool searching = true;
@@ -57,11 +72,38 @@ static uint16_t find_ligature_by_codepts(uint16_t *pattern,
   return 0;
 }
 
-void shape_text(char *text) {
-  if (text < (char *)SRAM_BASE || !*text) {
-    return;
+#ifdef TEXT_UNSHAPE
+static bool expand_ligature(uint16_t codept, char *ptr) {
+  const uint16_t *ligature_lut = (uint16_t *)ARABIC_LIGATURE_LUT;
+  int last_pattern_start = 0;
+  for (int i = 0; i < ARABIC_LIGATURE_LUT_SIZE / sizeof(uint16_t); ++i) {
+    if (ligature_lut[i] & LIG_REPLACEMENT_CODEPT_MASK) {
+      if ((ligature_lut[i] & ~LIG_REPLACEMENT_CODEPT_MASK) == codept) {
+        // Write out the original pattern that produced this ligature.
+        ptr -= RUNE_SIZE * (i - last_pattern_start - 1);
+        while (
+            !(ligature_lut[last_pattern_start] & LIG_REPLACEMENT_CODEPT_MASK)) {
+          write_utf8(ptr, ligature_lut[last_pattern_start++]);
+          ptr += RUNE_SIZE;
+        }
+        return true;
+      }
+      last_pattern_start = i + 1;
+    }
   }
+  return false;
+}
+#endif
+
+#ifdef TEXT_UNSHAPE
+bool shape_text(char *text) {
+#else
+void shape_text(char *text) {
+#endif
   ShaperState state = STATE_INITIAL;
+#ifdef TEXT_UNSHAPE
+  bool did_shape = false;
+#endif
   char *ptr = text;
 
   const int NEXT_CODEPT = 1;
@@ -106,6 +148,9 @@ void shape_text(char *text) {
     } else if (is_zero_width(codept_buffer[THIS_CODEPT])) {
       // Don't do anything rash.
     } else if (this_lut_entry) {
+#ifdef TEXT_UNSHAPE
+      did_shape = true;
+#endif
       if (
           // If we're about to change into an unshapable span, finish up.
           (!next_lut_entry && !is_zero_width(codept_buffer[NEXT_CODEPT])) ||
@@ -137,6 +182,9 @@ void shape_text(char *text) {
       // Not a shapable character - reset the state.
       // First, close any existing word.
       if (late_finalize_ptr) {
+#ifdef TEXT_UNSHAPE
+              did_shape = true;
+#endif
        if (state == STATE_INITIAL) {
          write_utf8(late_finalize_ptr, late_finalize_lut_entry->isolated_codept);
        } else {
@@ -147,4 +195,28 @@ void shape_text(char *text) {
       state = STATE_INITIAL;
     }
   } while (codept_buffer[THIS_CODEPT] || codept_buffer[NEXT_CODEPT]);
+#ifdef TEXT_UNSHAPE
+  return did_shape;
+#endif
 }
+
+#ifdef TEXT_UNSHAPE
+void unshape_text(char *iter) {
+  while (*iter) {
+    char *iter_pre = iter;
+    uint16_t codept = read_utf8(&iter);
+    if (!ARABIC_SHAPER_RANGE(codept)) {
+      continue;
+    }
+    uint16_t old_codept = find_base_codept_by_shaped(codept);
+    if (old_codept) {
+      if (expand_ligature(old_codept, iter_pre)) {
+        // Ligature was expanded - nothing left to do.
+      } else {
+        // Write back the original codept.
+        write_utf8(iter_pre, old_codept);
+      }
+    }
+  }
+}
+#endif
