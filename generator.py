@@ -19,17 +19,17 @@ from pebblesdk.stm32_crc import crc32
 MAX_RESOURCES = 512
 
 if len(sys.argv) < 3:
-    print("generator.py hw_rev out.pbz [langpack_out.pbl]")
+    print("generator.py hw_rev out.pbz [langpack_out.small.pbl langpack_out.med.pbl langpack_out.lg.pbl]")
     sys.exit(0)
 
 cache_root = "cache"
 firmware_series = "v3.8" # IDK.
 hw_rev = sys.argv[1]
 out_pbz_path = sys.argv[2]
-if len(sys.argv) == 4:
-    out_pbl_path = sys.argv[3]
+if len(sys.argv) >= 4:
+    out_pbl_paths = sys.argv[3:]
 else:
-    out_pbl_path = None
+    out_pbl_paths = None
 
 hw_rev_platform_map = {
     "ev2_4": "aplite",
@@ -45,6 +45,8 @@ platform_subset_map = {
     "basalt": "full",
     "chalk": "full"
 }
+
+size_shift_keys = ("small", "medium", "large")
 
 def cache_path(ns, k):
     if not os.path.exists(cache_root):
@@ -153,8 +155,8 @@ def extract_fonts(fw_dir):
             unpacked_path])
     return unpacked_path
 
-def generate_fonts(original_fonts_path, subset_key):
-    new_fonts_path = os.path.join(os.path.dirname(original_fonts_path), "generated_fonts")
+def generate_fonts(original_fonts_path, subset_key, size_shift_key):
+    new_fonts_path = os.path.join(os.path.dirname(original_fonts_path), "generated_fonts_%s" % size_shift_key)
     if not os.path.exists(new_fonts_path):
         os.mkdir(new_fonts_path)
         subprocess.check_call([
@@ -162,6 +164,7 @@ def generate_fonts(original_fonts_path, subset_key):
             "fonts/compose.py",
             original_fonts_path,
             subset_key,
+            size_shift_key,
             new_fonts_path,
             "runtime/"])
     return new_fonts_path
@@ -246,8 +249,10 @@ def pack_firmware(fw_ver, fw_dir, new_bin_path, out_pbz_path):
 fw_ver, orig_pbz_path = download_firmware(firmware_series, hw_rev)
 fw_dir = unpack_fw(fw_ver, hw_rev, orig_pbz_path)
 sdk_dir = download_sdk(fw_ver)
-if out_pbl_path:
-    new_resources_dir = generate_fonts(extract_fonts(fw_dir), platform_subset_map[hw_rev_platform_map[hw_rev]])
-    generate_langpack(new_resources_dir, out_pbl_path)
+if out_pbl_paths:
+    assert len(out_pbl_paths) == len(size_shift_keys)
+    for idx, size_shift_key in enumerate(size_shift_keys):
+        new_resources_dir = generate_fonts(extract_fonts(fw_dir), platform_subset_map[hw_rev_platform_map[hw_rev]], size_shift_key)
+        generate_langpack(new_resources_dir, out_pbl_paths[idx])
 patched_bin = patch_firmware(os.path.join(fw_dir, "tintin_fw.bin"), sdk_dir, hw_rev)
 pack_firmware(fw_ver, fw_dir, patched_bin, out_pbz_path)

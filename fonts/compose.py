@@ -10,7 +10,7 @@ import itertools
 # It takes a directory of PFO files (from find_system_fonts.py) and produces a second directory
 
 if len(sys.argv) < 5:
-    print("compose.py input_pfo_dir subset output_pfo_dir output_code_dir")
+    print("compose.py input_pfo_dir subset size_shift output_pfo_dir output_code_dir")
     sys.exit(0)
 
 MergeMember = namedtuple("MergeMember", "ttf_path size with_shaper codepts threshold fix_ijam")
@@ -47,75 +47,98 @@ blacklist = ("NUMBERS", "SUBSET", "EMOJI")
 
 shaper_result = None
 
-TEMPLATES = {
-    (9, None): [
-        MergeMember(ARABIC_FONT, 9, True), # This is about 1px too tall - but any smaller and it renders terribly.
-        MergeMember(HEBREW_FONT, 9, False, HEBREW_CODEPT_LIST)
-    ],
-    (14, None): [
-        MergeMember(ARABIC_FONT, 13, True),
-        MergeMember(HEBREW_FONT, 14, False, HEBREW_CODEPT_LIST)
-    ],
-    (14, "BOLD"): [
-        MergeMember(ARABIC_FONT_BOLD, 13, True, fix_ijam=True),
-        MergeMember(HEBREW_FONT_BOLD, 14, False, HEBREW_CODEPT_LIST)
-    ],
-    (18, None): [
+def select_template(size, variant, size_shift_key):
+    NOTIFICATION_SET_SM = [
         MergeMember(ARABIC_FONT, 15, True),
         MergeMember(HEBREW_FONT, 15, False, HEBREW_CODEPT_LIST)
-    ],
-    (18, "BOLD"): [
+    ]
+
+    NOTIFICATION_SET_SM_BOLD = [
         MergeMember(ARABIC_FONT_BOLD, 14, True, fix_ijam=True),
         MergeMember(HEBREW_FONT_BOLD, 16, False, HEBREW_CODEPT_LIST)
-    ],
-    # None of these have "condensed" variants.
-    (21, "CONDENSED"): [
-        MergeMember(ARABIC_FONT, 20, True, fix_ijam=True),
-        MergeMember(HEBREW_FONT, 21, False, HEBREW_CODEPT_LIST)
-    ],
-    # There's no way I can render this font at the correct height without 2-wide strokes
-    # Whereas the equivalent system font is 1px.
-    # There's no "Light" version of Tahoma. I guess I could hand edit 100+ glyphs.
-    # Oh well, readability right?
-    (24, None): [
+    ]
+
+    NOTIFICATION_SET_MED = [
         MergeMember(ARABIC_FONT, 19, True, threshold=100, fix_ijam=True),
         MergeMember(HEBREW_FONT, 19, False, HEBREW_CODEPT_LIST, threshold=100)
-    ],
-    (24, "BOLD"): [
+    ]
+
+    NOTIFICATION_SET_MED_BOLD = [
         MergeMember(ARABIC_FONT_BOLD, 19, True, fix_ijam=True),
         MergeMember(HEBREW_FONT_BOLD, 19, False, HEBREW_CODEPT_LIST)
-    ],
-    (28, None): [
+    ]
+
+    NOTIFICATION_SET_LG = [
         MergeMember(ARABIC_FONT, 24, True),
         MergeMember(HEBREW_FONT, 26, False, HEBREW_CODEPT_LIST)
-    ],
-    (28, "BOLD"): [
+    ]
+
+    NOTIFICATION_SET_LG_BOLD = [
         MergeMember(ARABIC_FONT_BOLD, 24, True),
         MergeMember(HEBREW_FONT_BOLD, 26, False, HEBREW_CODEPT_LIST)
-    ],
-    # Thankfully, the Arabic glyph indices between TNR and Tahoma appear to align.
-    # Why? No idea, they certainly don't need to.
-    # But it saves me from adding yet another layer of indirection in the text shaper.
-    (28, "BOLD_SERIF"): [
-        MergeMember(ARABIC_FONT_BOLD_SERIF, 24, True),
-        MergeMember(HEBREW_FONT_BOLD_SERIF, 26, False, HEBREW_CODEPT_LIST)
-    ],
-    (30, "BLACK"): [
-        MergeMember(ARABIC_FONT_BOLD, 28, True),
-        MergeMember(HEBREW_FONT_BOLD, 30, False, HEBREW_CODEPT_LIST)
-    ],
-    # See above.
-    (42, "LIGHT"): [
-        MergeMember(ARABIC_FONT, 38, True),
-        MergeMember(HEBREW_FONT, 42, False, HEBREW_CODEPT_LIST)
-    ],
-    (42, "BOLD"): [
-        MergeMember(ARABIC_FONT_BOLD, 38, True),
-        MergeMember(HEBREW_FONT_BOLD, 42, False, HEBREW_CODEPT_LIST)
     ]
-}
 
-def compose_font(input_pfo_path, subset_key, output_pfo_path):
+    notification_size_map = {
+        "small": (NOTIFICATION_SET_SM, NOTIFICATION_SET_SM_BOLD),
+        "medium": (NOTIFICATION_SET_MED, NOTIFICATION_SET_MED_BOLD),
+        "large": (NOTIFICATION_SET_LG, NOTIFICATION_SET_LG_BOLD)
+    }
+
+    TEMPLATES = {
+        (9, None): [
+            MergeMember(ARABIC_FONT, 9, True), # This is about 1px too tall - but any smaller and it renders terribly.
+            MergeMember(HEBREW_FONT, 9, False, HEBREW_CODEPT_LIST)
+        ],
+        (14, None): [
+            MergeMember(ARABIC_FONT, 13, True),
+            MergeMember(HEBREW_FONT, 14, False, HEBREW_CODEPT_LIST)
+        ],
+        (14, "BOLD"): [
+            MergeMember(ARABIC_FONT_BOLD, 13, True, fix_ijam=True),
+            MergeMember(HEBREW_FONT_BOLD, 14, False, HEBREW_CODEPT_LIST)
+        ],
+        (18, None): NOTIFICATION_SET_SM,
+        (18, "BOLD"): NOTIFICATION_SET_SM_BOLD,
+        # None of these have "condensed" variants.
+        (21, "CONDENSED"): [
+            MergeMember(ARABIC_FONT, 20, True, fix_ijam=True),
+            MergeMember(HEBREW_FONT, 21, False, HEBREW_CODEPT_LIST)
+        ],
+        # There's no way I can render this font at the correct height without 2-wide strokes
+        # Whereas the equivalent system font is 1px.
+        # There's no "Light" version of Tahoma. I guess I could hand edit 100+ glyphs.
+        # Oh well, readability right?
+        # This is also the font used for notifications
+        # We generate several variants of the language pack for the different sizes.
+        (24, None): notification_size_map[size_shift_key][0],
+        (24, "BOLD"): notification_size_map[size_shift_key][1],
+        (28, None): NOTIFICATION_SET_LG,
+        (28, "BOLD"): NOTIFICATION_SET_LG_BOLD,
+        # Thankfully, the Arabic glyph indices between TNR and Tahoma appear to align.
+        # Why? No idea, they certainly don't need to.
+        # But it saves me from adding yet another layer of indirection in the text shaper.
+        (28, "BOLD_SERIF"): [
+            MergeMember(ARABIC_FONT_BOLD_SERIF, 24, True),
+            MergeMember(HEBREW_FONT_BOLD_SERIF, 26, False, HEBREW_CODEPT_LIST)
+        ],
+        (30, "BLACK"): [
+            MergeMember(ARABIC_FONT_BOLD, 28, True),
+            MergeMember(HEBREW_FONT_BOLD, 30, False, HEBREW_CODEPT_LIST)
+        ],
+        # See above.
+        (42, "LIGHT"): [
+            MergeMember(ARABIC_FONT, 38, True),
+            MergeMember(HEBREW_FONT, 42, False, HEBREW_CODEPT_LIST)
+        ],
+        (42, "BOLD"): [
+            MergeMember(ARABIC_FONT_BOLD, 38, True),
+            MergeMember(HEBREW_FONT_BOLD, 42, False, HEBREW_CODEPT_LIST)
+        ]
+    }
+
+    return TEMPLATES[(size, variant)]
+
+def compose_font(input_pfo_path, subset_key, size_shift_key, output_pfo_path):
     global shaper_result
     input_pfo_name = os.path.basename(input_pfo_path)
     input_split = input_pfo_name.split(".")[0].split("_")
@@ -137,7 +160,7 @@ def compose_font(input_pfo_path, subset_key, output_pfo_path):
         variant += "_SERIF"
 
     try:
-        template = TEMPLATES[(size, variant)]
+        template = select_template(size, variant, size_shift_key)
     except KeyError:
         print("No template for %s!" % os.path.basename(input_pfo_path))
         return
@@ -247,8 +270,9 @@ def compose_font(input_pfo_path, subset_key, output_pfo_path):
 
 in_dir = sys.argv[1]
 subset_key = sys.argv[2]
-out_dir = sys.argv[3]
-out_code_dir = sys.argv[4]
+size_shift_key = sys.argv[3]
+out_dir = sys.argv[4]
+out_code_dir = sys.argv[5]
 
 # Top quality codegen
 code = """// THIS FILE IS AUTOMATICALLY GENERATED
@@ -273,4 +297,4 @@ for in_file in glob.glob(os.path.join(in_dir, "*.pfo")):
     if any(b in in_file for b in blacklist):
         continue
     out_file = os.path.join(out_dir, os.path.basename(in_file))
-    compose_font(in_file, subset_key, out_file)
+    compose_font(in_file, subset_key, size_shift_key, out_file)
