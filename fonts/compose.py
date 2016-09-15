@@ -25,7 +25,7 @@ HEBREW_FONT = ARABIC_FONT
 HEBREW_FONT_BOLD = ARABIC_FONT_BOLD
 HEBREW_FONT_BOLD_SERIF = ARABIC_FONT_BOLD_SERIF
 
-HEBREW_CODEPT_LIST = [0x5c0, 0x5c3, 0x5c6] + list(range(0x5d0, 0x5f5))
+HEBREW_CODEPT_LIST = [0x5c0, 0x5c3, 0x5c6, 0x20aa] + list(range(0x5d0, 0x5f5))
 
 # The RTL system doesn't support diacritics, especially crazy stacked harakat in Arabic.
 # So we silently drop them from rendering by assigning them zero-width that don't break the RTL scheme
