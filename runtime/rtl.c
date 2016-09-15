@@ -96,7 +96,7 @@ bool rtl_apply(char *line_start, char *line_end) {
         weak_ltr_span_start = this_codept_ptr;
       }
       neutral = true; // Don't break RTL span.
-    } else if (!weak_ltr && rtl_span_start && weak_ltr_span_start) {
+    } else if (!weak_ltr && !neutral && rtl_span_start && weak_ltr_span_start) {
       reverse_span(weak_ltr_span_start, this_codept_ptr);
       weak_ltr_span_start = NULL;
     }
