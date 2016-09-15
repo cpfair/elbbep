@@ -48,7 +48,8 @@ class Patcher:
         self.MAX_IMAGE_SIZE = {
             "aplite": 1024 * 512 - self.BOOTLOADER_SIZE,
             "basalt": 1024 * 1024 - self.BOOTLOADER_SIZE,
-            "chalk": 1024 * 1024 - self.BOOTLOADER_SIZE
+            "chalk": 1024 * 1024 - self.BOOTLOADER_SIZE,
+            "diorite": 1024 * 1024 - self.BOOTLOADER_SIZE
         }[platform]
 
         self.cflags = cflags

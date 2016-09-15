@@ -37,13 +37,15 @@ hw_rev_platform_map = {
     "v2_0": "aplite",
     "snowy_dvt": "basalt",
     "snowy_s3": "basalt",
-    "spalding": "chalk"
+    "spalding": "chalk",
+    "silk": "diorite",
 }
 
 platform_subset_map = {
     "aplite": "arabic",
     "basalt": "full",
-    "chalk": "full"
+    "chalk": "full",
+    "diorite": "full",
 }
 
 size_shift_keys = ("small", "medium", "large")
