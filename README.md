@@ -16,7 +16,9 @@ Requirements
 
 * Python 2.x *and* 3.x
 * The GCC toolchain for ARM (`arm-none-eabi-...`)
+    * On Ubuntu run `sudo apt-get install binutils-arm-none-eabi gcc-arm-none-eabi`
 * `hb-shape` command-line tool
+    * On Ubuntu run `sudo apt-get install libharfbuzz-bin`
 * A Mac with the Tahoma and Times New Roman type families installed (or modify the shamelessly-hardcoded paths in `fonts/compose.py`)
 * 1700-1900 bytes of free space in the target platform's firmware image - the generator will fail if not enough free space is available.
 
