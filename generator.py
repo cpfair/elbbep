@@ -19,15 +19,16 @@ from pebblesdk.stm32_crc import crc32
 MAX_RESOURCES = 512
 
 if len(sys.argv) < 3:
-    print("generator.py hw_rev out.pbz [langpack_out.small.pbl langpack_out.med.pbl langpack_out.lg.pbl]")
+    print("generator.py hw_rev rev_no out.pbz [langpack_out.small.pbl langpack_out.med.pbl langpack_out.lg.pbl]")
     sys.exit(0)
 
 cache_root = "cache"
 firmware_series = "v3.8" # IDK.
 hw_rev = sys.argv[1]
-out_pbz_path = sys.argv[2]
-if len(sys.argv) >= 4:
-    out_pbl_paths = sys.argv[3:]
+rev_no = int(sys.argv[2])
+out_pbz_path = sys.argv[3]
+if len(sys.argv) >= 5:
+    out_pbl_paths = sys.argv[4:]
 else:
     out_pbl_paths = None
 
@@ -221,13 +222,13 @@ def patch_firmware(target_bin, sdk_dir, hw_rev):
             out_bin])
     return out_bin
 
-def tag_version(fw_ver, fw_bin):
+def tag_version(fw_ver, rev_no, fw_bin):
     ver_string_loc = fw_bin.index(fw_ver.encode("ascii"))
-    new_ver_string = fw_ver.encode("ascii") + b"-RTL"
+    new_ver_string = fw_ver.encode("ascii") + b"-RTL-r%d" % rev_no
     res = fw_bin[:ver_string_loc] + new_ver_string + fw_bin[ver_string_loc + len(new_ver_string):]
     return res
 
-def pack_firmware(fw_ver, fw_dir, new_bin_path, out_pbz_path):
+def pack_firmware(fw_ver, rev_no, fw_dir, new_bin_path, out_pbz_path):
     misc_fw_files = [
         "LICENSE.txt",
         "layouts.json.auto",
@@ -238,7 +239,7 @@ def pack_firmware(fw_ver, fw_dir, new_bin_path, out_pbz_path):
         os.remove(out_pbz_path)
     manifest = json.load(open(os.path.join(fw_dir, "manifest.json")))
     fw_bin = open(new_bin_path, "r").read()
-    fw_bin = tag_version(fw_ver, fw_bin)
+    fw_bin = tag_version(fw_ver, rev_no, fw_bin)
     manifest["firmware"]["size"] = len(fw_bin)
     manifest["firmware"]["crc"] = crc32(fw_bin)
     pbz_zf = zipfile.ZipFile(out_pbz_path, "w")
@@ -257,4 +258,4 @@ if out_pbl_paths:
         new_resources_dir = generate_fonts(extract_fonts(fw_dir), platform_subset_map[hw_rev_platform_map[hw_rev]], size_shift_key)
         generate_langpack(new_resources_dir, out_pbl_paths[idx])
 patched_bin = patch_firmware(os.path.join(fw_dir, "tintin_fw.bin"), sdk_dir, hw_rev)
-pack_firmware(fw_ver, fw_dir, patched_bin, out_pbz_path)
+pack_firmware(fw_ver, rev_no, fw_dir, patched_bin, out_pbz_path)
