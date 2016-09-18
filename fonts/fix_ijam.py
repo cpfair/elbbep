@@ -60,8 +60,11 @@ def process_glyph(in_path, out_path):
             elif (x - 1, y) in other_points and \
                  check_isolated(x, y, excepting=((x - 1, y),)) and \
                  check_isolated(x - 1, y, excepting=((x, y),)):
+                 # This is the case where the ijam is a 1x2px line
+                 # We still want to expand it to 2x2
+                 # And we force the expansion in the direction of the original line.
                  other_points.remove((x - 1, y))
-                 isolated_points.append((x, y))
+                 isolated_points.append((x, y, -1, None))
             else:
                 other_points.append((x, y))
     if not isolated_points:
@@ -75,15 +78,23 @@ def process_glyph(in_path, out_path):
     hit_left = False
     hit_right = False
     ijam_bmp_data = {}
-    for x, y in isolated_points:
-        if x == isolated_centroid[0]:
-            sx = -1 if x < other_centroid[0] else 1
+    for p in isolated_points:
+        if len(p) == 2:
+            x, y = p
+            sx = sy = None
         else:
-            sx = -1 if x < isolated_centroid[0] else 1
-        if y == isolated_centroid[1]:
-            sy = -1 if y < other_centroid[1] else 1
-        else:
-            sy = -1 if y < isolated_centroid[1] else 1
+            x, y, sx, sy = p
+
+        if sx is None:
+            if x == isolated_centroid[0]:
+                sx = -1 if x < other_centroid[0] else 1
+            else:
+                sx = -1 if x < isolated_centroid[0] else 1
+        if sy is None:
+            if y == isolated_centroid[1]:
+                sy = -1 if y < other_centroid[1] else 1
+            else:
+                sy = -1 if y < isolated_centroid[1] else 1
 
         ijam_bmp_data[x, y] = True
         ijam_bmp_data[x, y + sy] = True
