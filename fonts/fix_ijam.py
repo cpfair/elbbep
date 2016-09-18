@@ -57,6 +57,11 @@ def process_glyph(in_path, out_path):
                 continue
             if check_isolated(x, y):
                 isolated_points.append((x, y))
+            elif (x - 1, y) in other_points and \
+                 check_isolated(x, y, excepting=((x - 1, y),)) and \
+                 check_isolated(x - 1, y, excepting=((x, y),)):
+                 other_points.remove((x - 1, y))
+                 isolated_points.append((x, y))
             else:
                 other_points.append((x, y))
     if not isolated_points:
