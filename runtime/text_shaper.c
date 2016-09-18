@@ -95,15 +95,8 @@ static bool expand_ligature(uint16_t codept, char *ptr) {
 }
 #endif
 
-#ifdef TEXT_UNSHAPE
-bool shape_text(char *text) {
-#else
 void shape_text(char *text) {
-#endif
   ShaperState state = STATE_INITIAL;
-#ifdef TEXT_UNSHAPE
-  bool did_shape = false;
-#endif
   char *ptr = text;
 
   const int NEXT_CODEPT = 1;
@@ -148,9 +141,6 @@ void shape_text(char *text) {
     } else if (is_zero_width(codept_buffer[THIS_CODEPT])) {
       // Don't do anything rash.
     } else if (this_lut_entry) {
-#ifdef TEXT_UNSHAPE
-      did_shape = true;
-#endif
       if (
           // If we're about to change into an unshapable span, finish up.
           (!next_lut_entry && !is_zero_width(codept_buffer[NEXT_CODEPT])) ||
@@ -182,9 +172,6 @@ void shape_text(char *text) {
       // Not a shapable character - reset the state.
       // First, close any existing word.
       if (late_finalize_ptr) {
-#ifdef TEXT_UNSHAPE
-              did_shape = true;
-#endif
        if (state == STATE_INITIAL) {
          write_utf8(late_finalize_ptr, late_finalize_lut_entry->isolated_codept);
        } else {
@@ -195,9 +182,6 @@ void shape_text(char *text) {
       state = STATE_INITIAL;
     }
   } while (codept_buffer[THIS_CODEPT] || codept_buffer[NEXT_CODEPT]);
-#ifdef TEXT_UNSHAPE
-  return did_shape;
-#endif
 }
 
 #ifdef TEXT_UNSHAPE

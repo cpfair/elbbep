@@ -24,7 +24,7 @@ class Patcher:
 
         self.target_bin = open(target_bin_path, "rb").read()
         self.target_deasm = subprocess.check_output(["arm-none-eabi-objdump", "-b", "binary", "-marm", "-Mforce-thumb", "-D", target_bin_path])
-        self.target_deasm = self.target_deasm.replace("\t", " ").replace("fp", "r11")
+        self.target_deasm = self.target_deasm.replace("\t", " ").replace("fp", "r11").replace("sl", "r10")
         open("target.d", "w").write(self.target_deasm)
         self.target_deasm_index = {}
         for addr_match in re.finditer("$\s+([a-f0-9]+):", self.target_deasm, re.MULTILINE):
@@ -87,7 +87,7 @@ class Patcher:
             file_rel_addr = (abs_addr & ~1) - self.MICROCODE_OFFSET
             self.symtab[func] = file_rel_addr
 
-    def _addr_step(self, addr, step):
+    def addr_step(self, addr, step):
         addr += step
         while True:
             try:
@@ -187,30 +187,16 @@ class Patcher:
         end_patch_addr = jmp_insert_addr + len(jmp_mcode)
         self._q(PatchBranchOffset(jmp_insert_addr, "%s__proxy" % dest_symbol, False))
 
-        # Grab the stuff we're going to overwrite
-        overwrote_mcode = self.target_bin[jmp_insert_addr:jmp_insert_addr + len(jmp_mcode)]
-
         # Assemble the proxy function to be assembled and linked
-        # Preserve all registers of the caller
-        proxy_asm = "PUSH {r0-r3, ip, lr}\n"
-        # Jump to injected function
+        proxy_asm = ""
         if asm:
             proxy_asm += asm
-        else:
-            proxy_asm += "BLX %s\n" % dest_symbol
-        # Restore caller variables
-        proxy_asm += "POP {r0-r3, ip, lr}\n"
-        if not supplant:
-            # Perform whatever actions we overwrote.
-            for byte in overwrote_mcode:
-                proxy_asm += ".byte 0x%x\n" % ord(byte)
-        # Return to original site
-        proxy_asm += "B %s__return\n" % dest_symbol
 
         print("Inject begin %x" % (self.MICROCODE_OFFSET + jmp_insert_addr))
         print("Inject return %x" % (self.MICROCODE_OFFSET + end_patch_addr))
         self._q(PatchDefineSymbol("%s__return" % dest_symbol, self.MICROCODE_OFFSET + end_patch_addr))
-        self._q(PatchAppendAsm("%s__proxy" % dest_symbol, proxy_asm, "void"))
+        if proxy_asm:
+            self._q(PatchAppendAsm("%s__proxy" % dest_symbol, proxy_asm, "void"))
 
     def wrap(self, dest_symbol, dest_match, return_type="void", passthru=True):
         # Patch insertion points must
