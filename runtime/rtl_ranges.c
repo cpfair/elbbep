@@ -6,7 +6,7 @@
 bool is_rtl(uint16_t cp) {
   return RANGE(cp, 0x60E,
                0x660) || // First part of Arabic block - up to numerals
-         RANGE(cp, 0x66D, 0xFF) || // Balance of Arabic block
+         RANGE(cp, 0x66D, 0x6FF + 1) || // Balance of Arabic block
          RANGE(cp, 0x750,
                0x77F + 1) || // Arabic-Extended - not that it's supported.
          RANGE(cp, 0x590, 0x600) || // Hebrew
