@@ -90,7 +90,6 @@ layout_driver_end_match = p.match(r"""
     ldm.+\{(?P<popregs>.+)\}
     """, start=layout_driver_addr, n=0)
 layout_driver_frame_size = int(layout_driver_end_match.groups["sz1"]) + (layout_driver_end_match.groups["popregs"].count(",") + 1) * 4
-arbitrary_offset = 0x34
 
 if platform == "aplite":
     # Dig out a pointer to the structure that holds the input iteration state.
@@ -100,14 +99,11 @@ if platform == "aplite":
     layour_driver_setup_end = p.match(r"b(?:ne|eq).+", start=layout_driver_addr, n=2).start
     layout_driver_last_call = p.match("bl.+", start=layout_driver_addr, end=layour_driver_setup_end, n=-1).start
     lineend_sp_off = int(p.match("add r1, sp, #(?P<off>\d+).*", start=layout_driver_addr, end=layout_driver_last_call, n=-1).groups["off"])
-    assert lineend_sp_off == (layout_driver_frame_size - arbitrary_offset)
+    print("Line-end stack pointer offset %x" % lineend_sp_off)
+    p.define_macro("LINEEND_SP_OFF", lineend_sp_off)
 else:
-    # I couldn't find a good place to pull this value from.
-    # But, it's stable between aplite and basalt so.
-    lineend_sp_off = layout_driver_frame_size - arbitrary_offset
-    print(lineend_sp_off)
-
-p.define_macro("LINEEND_SP_OFF", lineend_sp_off)
+    # Empirically determined - probably only works on >=4.1.
+    p.define_macro("LINEEND_INDIRECT_SP_OFF", 56)
 
 # This is the part that actually calls the render callback - which we intend to wrap.
 render_handler_call_match = p.match(r"""
