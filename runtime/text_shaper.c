@@ -2,7 +2,6 @@
 #include "font_ranges.h"
 #include "text_shaper_lut.h"
 #include "utf8.h"
-#include "platform.h"
 
 typedef enum ShaperState { STATE_INITIAL, STATE_MEDIAL } ShaperState;
 

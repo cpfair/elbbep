@@ -1,6 +1,5 @@
 #include "rtl.h"
 #include "pebble.h"
-#include "platform.h"
 #include "rtl_ranges.h"
 #include "utf8.h"
 #define SWAP(a, b)                                                             \
