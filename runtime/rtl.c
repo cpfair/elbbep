@@ -50,7 +50,7 @@ static void apply_swaps(char *ch) {
   // RTL_SWAPS is a set of pairs of chars to be exchanged if they fall in an RTL
   // block.
   char val = *ch;
-  for (int i = 0; i < sizeof(RTL_SWAPS); ++i) {
+  for (size_t i = 0; i < sizeof(RTL_SWAPS); ++i) {
     if (val == RTL_SWAPS[i]) {
       *ch = RTL_SWAPS[i ^ 1];
       return;
