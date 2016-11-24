@@ -149,7 +149,6 @@ assert int(more_text_reg_value.register.strip("r")) > 2
 
 p.define_macro("RENDERHDLR_ARG3_SP_OFF", render_handler_call_match.groups["arg3_sp_off"])
 
-# The magic number 4 in this block is the stack offset for what we push here.
 render_wrap_asm = """
     @ At this point, we have the render handler args 1 (gcontext) and 2 (layout) in r0/r1, and were about to load the 3rd (??) from wherever.
     @ The handler itself is in r3, probably
