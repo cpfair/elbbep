@@ -47,10 +47,20 @@ if TEXT_UNSHAPE:
     # So, need to patch the end of graphics_draw_text to return to our code without the use of LR.
     gdt_return_overwrote_mcode = p.target_bin[gdt_end_match.start:p.addr_step(gdt_end_match.end, 2)]
 
-    # The text is stored in a struct or something on the stack, passed to the first call of graphics_draw_text.
-    first_call_match = p.match("bl .+", start=gdt_match.start, end=gdt_end_match.start, n=0)
-    first_call_r0_match = p.match(r"mov r0, (?P<reg>r\d+)", n=-1, start=gdt_match.start, end=first_call_match.start)
-    text_struct_sp_off = int(p.match(r"add %s, sp, #(?P<off>\d+)" % first_call_r0_match.groups["reg"], n=-1, start=gdt_match.start, end=first_call_r0_match.start).groups["off"])
+    # We need to trace the path of r1, aka *text.
+    r1_stash_reg = p.match(r"mov (?P<reg>r\d+), r1", start=gdt_match.start, n=0).groups["reg"]
+
+    # Does it go into the stack right away?
+    try:
+        text_struct_sp_off = int(p.match(r"str %s, \[sp, #(?P<off>\d+)\]" % r1_stash_reg, start=gdt_match.start, end=gdt_end_match.end, n=0).groups["off"])
+        print("Detected *text SP offset directly")
+    except AssertionError:
+        # I guess not.
+        # The text is stored in a struct or something on the stack, passed to the first call of graphics_draw_text.
+        first_call_match = p.match("bl .+", start=gdt_match.start, end=gdt_end_match.start, n=0)
+        first_call_r0_match = p.match(r"mov r0, (?P<reg>r\d+)", n=-1, start=gdt_match.start, end=first_call_match.start)
+        text_struct_sp_off = int(p.match(r"add %s, sp, #(?P<off>\d+)" % first_call_r0_match.groups["reg"], n=-1, start=gdt_match.start, end=first_call_r0_match.start).groups["off"])
+        print("Detected *text SP offset INdirectly")
 
 
     # The end of graphics_draw_text is a stack pointer op, wide pop, another stack ptr op, then bx lr
@@ -101,9 +111,12 @@ if platform == "aplite":
     lineend_sp_off = int(p.match("add r1, sp, #(?P<off>\d+).*", start=layout_driver_addr, end=layout_driver_last_call, n=-1).groups["off"])
     print("Line-end stack pointer offset %x" % lineend_sp_off)
     p.define_macro("LINEEND_SP_OFF", lineend_sp_off)
-else:
+elif platform == "diorite":
     # Empirically determined - probably only works on >=4.1.
-    p.define_macro("LINEEND_INDIRECT_SP_OFF", 56)
+    p.define_macro("LINEEND_INDIRECT_2_SP_OFF", 56)
+else:
+    # Very empirically determined, thanks gdb.
+    p.define_macro("LINEEND_INDIRECT_1_SP_OFF", 124)
 
 # This is the part that actually calls the render callback - which we intend to wrap.
 render_handler_call_match = p.match(r"""
@@ -113,7 +126,7 @@ render_handler_call_match = p.match(r"""
     ldr r2, \[sp, #(?P<arg3_sp_off>\d+)\].*
     blx (?P<hdlr_reg>r\d+)
     b.+
-""")
+""", start=layout_driver_addr, n=0)
 
 more_text_reg_match = p.match(r"c(mp|bnz).+(?P<reg>r\d+).*", start=layout_driver_addr, end=render_handler_call_match.start, n=-1)
 more_text_reg_value = CallsiteValue(register=more_text_reg_match.groups["reg"])
