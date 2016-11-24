@@ -113,10 +113,10 @@ if platform == "aplite":
     p.define_macro("LINEEND_SP_OFF", lineend_sp_off)
 elif platform == "diorite":
     # Empirically determined - probably only works on >=4.1.
-    p.define_macro("LINEEND_INDIRECT_2_SP_OFF", 56)
+    p.define_macro("LINEEND_INDIRECT_SP_OFF", 56)
 else:
     # Very empirically determined, thanks gdb.
-    p.define_macro("LINEEND_INDIRECT_1_SP_OFF", 124)
+    p.define_macro("LINEEND_SP_OFF", 124)
 
 # This is the part that actually calls the render callback - which we intend to wrap.
 render_handler_call_match = p.match(r"""

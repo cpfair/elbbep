@@ -61,16 +61,11 @@ GTextAlignment gdt_alignment_step(char* text, GTextAlignment alignment){
 void render_rtl_step(char* line_start, bool more_text, char* callsite_sp) {
   char *line_end, *line_end_1, *line_end_2;
   if (line_start >= (char *)SRAM_BASE && *line_start) {
-#ifdef LINEEND_INDIRECT_2_SP_OFF
-    // 4.1 breaks the old LINEEND_SP_OFF stuff.
+#ifdef LINEEND_INDIRECT_SP_OFF
+    // 4.1 breaks the old LINEEND_SP_OFF_1 stuff.
     // But, after an hour or two of rifling through memory, this seems to be the same...
-    line_end_1 = *((*(char***)(callsite_sp + LINEEND_INDIRECT_2_SP_OFF) + 2));
-    line_end_2 = *((*(char***)(callsite_sp + LINEEND_INDIRECT_2_SP_OFF) + 3));
-#elif LINEEND_INDIRECT_1_SP_OFF
-    // 4.3 changes things further on Basalt & Chalk.
-    // Nothing that poring over the stack can't fix.
-    line_end_1 = *(char**)(callsite_sp + LINEEND_INDIRECT_1_SP_OFF);
-    line_end_2 = *(char**)(callsite_sp + LINEEND_INDIRECT_1_SP_OFF + 4);
+    line_end_1 = *((*(char***)(callsite_sp + LINEEND_INDIRECT_SP_OFF) + 2));
+    line_end_2 = *((*(char***)(callsite_sp + LINEEND_INDIRECT_SP_OFF) + 3));
 #else
     line_end_1 = *(char **)(callsite_sp + LINEEND_SP_OFF);
     line_end_2 = *(char **)(callsite_sp + LINEEND_SP_OFF + 4);
